@@ -1,0 +1,17 @@
+{
+  "short_name": "RadikoPWA",
+  "name": "Radiko PWA Player",
+  "icons": [
+    {
+      "src": "icon.png",
+      "type": "image/png",
+      "sizes": "192x192",
+      "purpose": "any maskable"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#1a1a1a",
+  "theme_color": "#1f6aa5",
+  "display": "standalone",
+  "orientation": "portrait-primary"
+}

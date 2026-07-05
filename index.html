@@ -3,7 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radiko PWA Player - Step 4</title>
+    <title>Radiko PWA Player</title>
+    <!-- manifest.json の読み込み -->
+    <link rel="manifest" href="./manifest.json">
+    <!-- モバイルブラウザ用のテーマカラー -->
+    <meta name="theme-color" content="#1f6aa5">
     <!-- M4AやMP3のタグを解析するライブラリを読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <style>
@@ -289,7 +293,7 @@
 
 <!-- メインプレイヤーカード -->
 <div class="player-card">
-    <h2>Radiko PWA 試作版</h2>
+    <h2>Radiko PWA Player</h2>
     
     <!-- 1. メタデータ・カバーアート表示領域（最上部へ） -->
     <div class="meta-container">
@@ -396,9 +400,9 @@
     // コア：音声ファイルの読み込みと再生処理
     function loadAudioFile(file) {
         currentFileName = file.name;
-        resumeStatus.textContent = ""; 
-        loadedLyrics = ""; 
-        lyricsOverlay.classList.remove('active'); 
+        resumeStatus.textContent = "";
+        loadedLyrics = "";
+        lyricsOverlay.classList.remove('active');
 
         // 1. タグ情報の読み込み
         jsmediatags.read(file, {
@@ -482,6 +486,16 @@
             resumeStatus.textContent = "再生が完了しました";
         }
     });
+
+    // Service Worker の登録処理
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then((reg) => console.log('Service Worker 登録成功:', reg.scope))
+                .catch((err) => console.log('Service Worker 登録失敗:', err));
+        });
+    }
+
 </script>
 
 </body>
