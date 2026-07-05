@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radiko PWA Player - Step 3</title>
+    <title>Radiko PWA Player - Step 4</title>
     <!-- M4AやMP3のタグを解析するライブラリを読み込み -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
     <style>
@@ -16,7 +16,98 @@
             align-items: center;
             height: 100vh;
             margin: 0;
+            overflow: hidden;
         }
+        
+        /* ハンバーガーボタン */
+        .burger-btn {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            cursor: pointer;
+            z-index: 30;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            width: 25px;
+            height: 18px;
+        }
+        .burger-btn span {
+            display: block;
+            height: 3px;
+            width: 100%;
+            background-color: #ffffff;
+            border-radius: 3px;
+            transition: 0.3s;
+        }
+        
+        /* 設定サイドパネル */
+        .settings-panel {
+            position: absolute;
+            top: 0;
+            left: -320px; /* 初期状態は画面外 */
+            width: 300px;
+            height: 100%;
+            background-color: #252525;
+            box-shadow: 4px 0 15px rgba(0,0,0,0.5);
+            transition: left 0.3s ease-in-out;
+            z-index: 20;
+            box-sizing: border-box;
+            padding: 80px 20px 20px 20px;
+            display: flex;
+            flex-direction: column;
+        }
+        .settings-panel.active {
+            left: 0;
+        }
+        .settings-title {
+            font-size: 18px;
+            font-weight: bold;
+            border-bottom: 1px solid #444;
+            padding-bottom: 10px;
+            margin-bottom: 15px;
+        }
+        
+        /* ディレクトリ内のファイルリスト表示 */
+        .folder-sync-btn {
+            background-color: #27ae60;
+            color: white;
+            padding: 8px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 13px;
+            display: inline-block;
+            margin-bottom: 15px;
+            text-align: center;
+        }
+        .folder-sync-btn:hover { background-color: #219653; }
+        .file-list-container {
+            flex-grow: 1;
+            overflow-y: auto;
+            background-color: #1a1a1a;
+            border-radius: 6px;
+            padding: 10px;
+        }
+        .file-list-title {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 8px;
+            text-transform: uppercase;
+        }
+        .file-item {
+            font-size: 13px;
+            padding: 6px 8px;
+            cursor: pointer;
+            border-radius: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .file-item:hover {
+            background-color: #1f6aa5;
+        }
+
+        /* メインのプレイヤーカード */
         .player-card {
             background-color: #2d2d2d;
             padding: 30px;
@@ -24,9 +115,11 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5);
             width: 450px;
             text-align: center;
-            position: relative; /* 歌詞オーバーレイの基準位置 */
-            overflow: hidden;   /* 歌詞がカードからはみ出さないように */
+            position: relative;
+            overflow: hidden;
         }
+        
+        /* ファイル選択ボタン（情報エリアの下に配置するためマージン調整） */
         .file-input-label {
             display: inline-block;
             background-color: #1f6aa5;
@@ -34,7 +127,8 @@
             padding: 10px 20px;
             border-radius: 6px;
             cursor: pointer;
-            margin-bottom: 20px;
+            margin-top: 5px;
+            margin-bottom: 15px;
             font-size: 14px;
         }
         .file-input-label:hover {
@@ -44,21 +138,20 @@
             display: none;
         }
         
-        /* メタデータ表示エリア（縦積みレイアウト） */
+        /* メタデータ表示エリア（最上部に配置） */
         .meta-container {
             display: flex;
-            flex-direction: column; /* 縦積みに変更 */
+            flex-direction: column;
             background-color: #202020;
             padding: 15px;
             border-radius: 8px;
-            margin-bottom: 20px;
+            margin-bottom: 15px;
             text-align: left;
         }
         
-        /* 横長（左右いっぱい）のアートワーク */
         .cover-art {
             width: 100%;
-            height: 200px; /* 横長に適した高さ */
+            height: 200px;
             background-color: #3a3a3a;
             border-radius: 6px;
             display: flex;
@@ -66,11 +159,11 @@
             align-items: center;
             font-size: 14px;
             color: #888;
-            margin-bottom: 15px; /* 下部テキストとの間隔 */
-            background-size: contain; /* 横長画像が潰れないように収める */
+            margin-bottom: 15px;
+            background-size: contain;
             background-position: center;
             background-repeat: no-repeat;
-            cursor: pointer; /* クリック可能であることを示す */
+            cursor: pointer;
             transition: opacity 0.2s;
         }
         .cover-art:hover {
@@ -98,25 +191,25 @@
             text-overflow: ellipsis;
         }
         
-        /* 歌詞オーバーレイ表示エリア */
+        /* 歌詞オーバーレイ */
         .lyrics-overlay {
             position: absolute;
-            bottom: -100%; /* 初期状態は画面外（下部） */
+            bottom: -100%;
             left: 0;
             width: 100%;
-            height: 80%; /* プレイヤーカードの8割を覆う */
+            height: 80%;
             background-color: rgba(40, 40, 40, 0.95);
             box-sizing: border-box;
             padding: 25px;
             border-top: 2px solid #1f6aa5;
-            transition: bottom 0.3s ease-in-out; /* スッとせり上がるアニメーション */
+            transition: bottom 0.3s ease-in-out;
             text-align: left;
             display: flex;
             flex-direction: column;
             z-index: 10;
         }
         .lyrics-overlay.active {
-            bottom: 0; /* アクティブ時にせり上がる */
+            bottom: 0;
         }
         .lyrics-header {
             font-size: 14px;
@@ -129,10 +222,10 @@
         }
         .lyrics-content {
             flex-grow: 1;
-            overflow-y: auto; /* 縦スクロール（オーバーフロー）を許可 */
+            overflow-y: auto;
             font-size: 15px;
             line-height: 1.6;
-            white-space: pre-wrap; /* 改行をそのまま反映 */
+            white-space: pre-wrap;
             color: #eee;
             padding-right: 5px;
         }
@@ -148,21 +241,58 @@
         audio {
             width: 100%;
         }
+        
+        /* メニューが開いている時の背景レイヤー */
+        .sidebar-overlay {
+            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.5);
+            z-index: 15;
+        }
+        .sidebar-overlay.active {
+            display: block;
+        }
     </style>
 </head>
 <body>
 
+<!-- ハンバーガーボタン -->
+<div class="burger-btn" id="burger-btn">
+    <span></span>
+    <span></span>
+    <span></span>
+</div>
+
+<!-- メニュー背景レイヤー -->
+<div class="sidebar-overlay" id="sidebar-overlay"></div>
+
+<!-- 設定サイドパネル -->
+<div class="settings-panel" id="settings-panel">
+    <div class="settings-title">設定・ディレクトリ</div>
+    
+    <!-- 疑似デフォルトディレクトリ（フォルダ同期機能） -->
+    <label class="folder-sync-btn">
+        📁 デフォルトフォルダ同期
+        <!-- webkitdirectory属性でフォルダ内の全ファイルを対象にする -->
+        <input type="file" id="folder-input" webkitdirectory directory multiple style="display:none;">
+    </label>
+    
+    <div class="file-list-title">フォルダ内ファイル一覧</div>
+    <div class="file-list-container" id="file-list">
+        <div style="font-size:12px; color:#555; text-align:center; margin-top:20px;">フォルダが同期されていません</div>
+    </div>
+</div>
+
+<!-- メインプレイヤーカード -->
 <div class="player-card">
     <h2>Radiko PWA 試作版</h2>
     
-    <label class="file-input-label">
-        ▼ 音声ファイルを選択
-        <input type="file" id="audio-file" accept="audio/*">
-    </label>
-    
-    <!-- メタデータ・カバーアート表示領域 -->
+    <!-- 1. メタデータ・カバーアート表示領域（最上部へ） -->
     <div class="meta-container">
-        <!-- クリックで歌詞が開く旨を伝えるヒントを付与 -->
         <div class="cover-art" id="cover-art" title="クリックで歌詞を表示">[No Cover]</div>
         <div class="track-info">
             <div class="track-title" id="track-title">-</div>
@@ -171,9 +301,16 @@
         </div>
     </div>
     
+    <!-- 2. 音声ファイルを選択ボタン（情報エリアの下、シークバーの上に移動） -->
+    <label class="file-input-label">
+        ▼ 音声ファイルを選択
+        <input type="file" id="audio-file" accept="audio/*">
+    </label>
+    
     <!-- レジューム状態の通知メッセージ -->
     <div class="resume-status" id="resume-status"></div>
     
+    <!-- 3. シークバー（プレイヤー本体） -->
     <audio id="audio-player" controls></audio>
 
     <!-- 歌詞オーバーレイ構造 -->
@@ -188,6 +325,7 @@
 
 <script>
     const fileInput = document.getElementById('audio-file');
+    const folderInput = document.getElementById('folder-input');
     const audioPlayer = document.getElementById('audio-player');
     
     // UI要素
@@ -197,25 +335,72 @@
     const coverArt = document.getElementById('cover-art');
     const resumeStatus = document.getElementById('resume-status');
     
-    // 歌詞用UI要素
+    // 歌詞・メニューUI要素
     const lyricsOverlay = document.getElementById('lyrics-overlay');
     const lyricsContent = document.getElementById('lyrics-content');
     const lyricsClose = document.getElementById('lyrics-close');
+    const burgerBtn = document.getElementById('burger-btn');
+    const settingsPanel = document.getElementById('settings-panel');
+    const sidebarOverlay = document.getElementById('sidebar-overlay');
+    const fileListContainer = document.getElementById('file-list');
 
     let currentFileName = "";
     let loadedLyrics = "";
+    let synchronizedFiles = []; // 同期されたファイルオブジェクトの保管庫
 
-    // ファイル選択時の処理
+    // ハンバーガーメニューの開閉処理
+    burgerBtn.addEventListener('click', toggleMenu);
+    sidebarOverlay.addEventListener('click', toggleMenu);
+
+    function toggleMenu() {
+        settingsPanel.classList.toggle('active');
+        sidebarOverlay.classList.toggle('active');
+    }
+
+    // デフォルトフォルダ同期の処理
+    folderInput.addEventListener('change', function(e) {
+        const files = Array.from(e.target.files);
+        // 音声ファイルだけを抽出してソート
+        synchronizedFiles = files.filter(file => file.type.startsWith('audio/') || file.name.endsWith('.m4a')).sort((a, b) => a.name.localeCompare(b.name));
+        
+        renderFileList();
+    });
+
+    // サイドバー内のファイルリストを描画
+    function renderFileList() {
+        fileListContainer.innerHTML = "";
+        if (synchronizedFiles.length === 0) {
+            fileListContainer.innerHTML = '<div style="font-size:12px; color:#555; text-align:center; margin-top:20px;">音声ファイルが見つかりません</div>';
+            return;
+        }
+
+        synchronizedFiles.forEach((file, index) => {
+            const item = document.createElement('div');
+            item.className = 'file-item';
+            item.textContent = file.name;
+            item.title = file.name;
+            item.addEventListener('click', () => {
+                loadAudioFile(file);
+                toggleMenu(); // ファイル選択後にメニューを閉じる
+            });
+            fileListContainer.appendChild(item);
+        });
+    }
+
+    // ファイル単体選択時のイベント
     fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
-        if (!file) return;
+        if (file) loadAudioFile(file);
+    });
 
+    // コア：音声ファイルの読み込みと再生処理
+    function loadAudioFile(file) {
         currentFileName = file.name;
         resumeStatus.textContent = ""; 
-        loadedLyrics = ""; // 歌詞の初期化
-        lyricsOverlay.classList.remove('active'); // 新しいファイル時は歌詞を閉じる
+        loadedLyrics = ""; 
+        lyricsOverlay.classList.remove('active'); 
 
-        // 1. タグ情報の読み込み (jsmediatagsを使用)
+        // 1. タグ情報の読み込み
         jsmediatags.read(file, {
             onSuccess: function(tag) {
                 const tags = tag.tags;
@@ -223,18 +408,14 @@
                 trackAlbum.textContent = tags.album || "-";
                 trackArtist.textContent = tags.artist || "-";
 
-                // 歌詞タグの取得（M4Aの通常の歌詞タグに対応）
                 if (tags.lyrics) {
                     loadedLyrics = tags.lyrics;
                 } else if (tags.unsynchronisedLyrics) {
-                    // MP3などの非同期歌詞タグのフォールバック
                     loadedLyrics = tags.unsynchronisedLyrics.text;
                 }
                 
-                // 歌詞表示エリアへの反映
                 lyricsContent.textContent = loadedLyrics ? loadedLyrics : "歌詞情報が含まれていないか、読み込めませんでした。";
 
-                // カバーアートの処理
                 if (tags.picture) {
                     const { data, format } = tags.picture;
                     let base64String = "";
@@ -249,7 +430,6 @@
                 }
             },
             onError: function(error) {
-                console.log('タグの読み込みに失敗しました:', error.type, error.info);
                 trackTitle.textContent = file.name;
                 trackAlbum.textContent = "-";
                 trackArtist.textContent = "-";
@@ -263,7 +443,7 @@
         const fileURL = URL.createObjectURL(file);
         audioPlayer.src = fileURL;
 
-        // 3. レジューム（前回の停止位置）の復元
+        // 3. レジュームの復元
         const savedTime = localStorage.getItem(`resume_${currentFileName}`);
         if (savedTime) {
             const parseFloatTime = parseFloat(savedTime);
@@ -277,16 +457,13 @@
         audioPlayer.play().catch(err => {
             console.log("自動再生がブロックされました。", err);
         });
-    });
+    }
 
-    // 4. アートワーククリックで歌詞のトグル表示
+    // アートワーククリックで歌詞の表示
     coverArt.addEventListener('click', function() {
-        if (currentFileName) {
-            lyricsOverlay.classList.toggle('active');
-        }
+        if (currentFileName) lyricsOverlay.classList.toggle('active');
     });
 
-    // 歌詞ヘッダー（閉じるボタン）クリックで閉じる
     lyricsClose.addEventListener('click', function() {
         lyricsOverlay.classList.remove('active');
     });
