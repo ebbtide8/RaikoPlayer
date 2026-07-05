@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radiko PWA Player - Prototype</title>
+    <style>
+        /* 簡単なダークモード風のスタイリング（CustomTkinterの雰囲気に合わせて） */
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+        }
+        .player-card {
+            background-color: #2d2d2d;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            width: 400px;
+            text-align: center;
+        }
+        .file-input-label {
+            display: inline-block;
+            background-color: #1f6aa5;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 6px;
+            cursor: pointer;
+            margin-bottom: 20px;
+            font-size: 14px;
+        }
+        .file-input-label:hover {
+            background-color: #144d77;
+        }
+        input[type="file"] {
+            display: none;
+        }
+        .file-info {
+            margin: 15px 0;
+            font-size: 14px;
+            color: #aaaaaa;
+            word-break: break-all;
+        }
+        audio {
+            width: 100%;
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="player-card">
+    <h2>Radiko PWA 試作版</h2>
+    
+    <!-- ファイル選択ボタン -->
+    <label class="file-input-label">
+        ▼ 音声ファイルを選択
+        <input type="file" id="audio-file" accept="audio/*">
+    </label>
+    
+    <!-- 選択されたファイル名表示 -->
+    <div class="file-info" id="file-name">ファイルが選択されていません</div>
+    
+    <!-- オーディオプレイヤー要素 -->
+    <audio id="audio-player" controls></audio>
+</div>
+
+<script>
+    const fileInput = document.getElementById('audio-file');
+    const fileNameDisplay = document.getElementById('file-name');
+    const audioPlayer = document.getElementById('audio-player');
+
+    // ファイルが選択されたときの処理
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        // ファイル名を表示
+        fileNameDisplay.textContent = `再生中: ${file.name}`;
+
+        // ファイルをブラウザで再生可能なURL（Blob URL）に変換してプレイヤーにセット
+        const fileURL = URL.createObjectURL(file);
+        audioPlayer.src = fileURL;
+
+        // 自動再生
+        audioPlayer.play().catch(err => {
+            console.log("自動再生がブロックされました。再生ボタンを押してください。", err);
+        });
+    });
+</script>
+
+</body>
+</html>
