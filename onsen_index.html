@@ -1,0 +1,478 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+    <title>Radiko PWA Player - Onsen UI</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#1f6aa5">
+
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+
+    <!-- Onsen UI -->
+    <link rel="stylesheet" href="https://unpkg.com/onsenui@2.12.8/css/onsenui.css">
+    <link rel="stylesheet" href="https://unpkg.com/onsenui@2.12.8/css/onsen-css-components-dark-theme.min.css">
+    <script src="https://unpkg.com/onsenui@2.12.8/js/onsenui.min.js"></script>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+
+    <style>
+        :root{
+            --accent: #1f6aa5;
+            --accent-dark: #144d77;
+            --bg: #17181a;
+            --card-bg: #232427;
+            --meta-bg: #1b1c1e;
+            --text-sub: #9a9ea3;
+        }
+
+        html, body { height: 100%; }
+        body {
+            font-family: -apple-system, 'Helvetica Neue', 'Hiragino Sans', Arial, sans-serif;
+            margin: 0;
+        }
+
+        ons-toolbar { --toolbar-bg: var(--bg); }
+        .toolbar-title { font-weight: 700; letter-spacing: .02em; }
+
+        ons-page { --page-bg: var(--bg); }
+
+        .player-wrap {
+            max-width: 460px;
+            margin: 0 auto;
+            padding: 16px 16px 28px;
+        }
+
+        /* メタデータカード */
+        ons-card.meta-card {
+            background: var(--card-bg);
+            border: none;
+            border-radius: 16px;
+            padding: 0;
+            overflow: hidden;
+            box-shadow: 0 8px 24px rgba(0,0,0,.35);
+        }
+
+        .cover-art {
+            width: 100%;
+            aspect-ratio: 1 / 1;
+            max-height: 260px;
+            background-color: #2c2d30;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 13px;
+            color: var(--text-sub);
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            cursor: pointer;
+            transition: opacity .2s;
+            border-bottom: 1px solid rgba(255,255,255,.06);
+        }
+        .cover-art:hover { opacity: .85; }
+
+        .track-info { padding: 14px 16px 16px; }
+        .track-title {
+            font-size: 18px;
+            font-weight: 700;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-album, .track-artist {
+            font-size: 13px;
+            color: var(--text-sub);
+            margin-bottom: 2px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+
+        /* レジューム・時間通知 */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            font-size: 12px;
+            margin: 14px 2px 8px;
+            height: 18px;
+        }
+        .resume-status { color: #34d17f; font-weight: 600; }
+        .time-display { color: var(--text-sub); font-family: 'SFMono-Regular', Menlo, monospace; font-size: 13px; }
+
+        /* 10段シークバー */
+        .multi-seekbar-container {
+            display: flex;
+            flex-direction: column;
+            gap: 6px;
+            margin: 8px 2px 20px;
+        }
+        .seek-segment {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 12px;
+            background: #34363a;
+            border-radius: 6px;
+            outline: none;
+            cursor: pointer;
+            background: linear-gradient(to right, var(--accent) 0%, var(--accent) var(--val, 0%), #34363a var(--val, 0%), #34363a 100%);
+        }
+        .seek-segment::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 18px;
+            height: 18px;
+            background: #ffffff;
+            border: 3px solid var(--accent);
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform .1s;
+        }
+        .seek-segment::-webkit-slider-thumb:hover { transform: scale(1.15); }
+        .seek-segment::-moz-range-thumb {
+            width: 12px; height: 12px;
+            background: #fff; border: 3px solid var(--accent); border-radius: 50%; cursor: pointer;
+        }
+
+        /* 最下部コントロールバー */
+        .bottom-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 4px 6px 0;
+        }
+
+        .folder-btn {
+            width: 46px;
+            height: 46px;
+            border-radius: 50%;
+            background: var(--meta-bg);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform .2s, background .2s;
+        }
+        .folder-btn:hover { background: #2a2b2e; transform: scale(1.05); }
+        .folder-btn ons-icon { color: var(--text-sub); font-size: 20px; }
+        input[type="file"] { display: none; }
+
+        .play-btn {
+            width: 62px;
+            height: 62px;
+            background: var(--accent);
+            color: #fff;
+            border-radius: 50%;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: background-color .2s, transform .2s;
+            box-shadow: 0 6px 16px rgba(31,106,165,.45);
+        }
+        .play-btn:hover { background-color: var(--accent-dark); transform: scale(1.04); }
+        .play-btn ons-icon { font-size: 26px; }
+
+        .spacer-46 { width: 46px; height: 46px; }
+
+        /* 歌詞ダイアログ */
+        ons-dialog#lyrics-dialog {
+            --dialog-bg: var(--card-bg);
+            width: 90%;
+            max-width: 420px;
+            border-radius: 14px;
+            overflow: hidden;
+        }
+        .lyrics-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 14px 16px;
+            background: var(--meta-bg);
+            color: var(--accent);
+            font-weight: 700;
+            font-size: 14px;
+        }
+        .lyrics-header ons-icon { cursor: pointer; color: var(--text-sub); }
+        .lyrics-content {
+            max-height: 55vh;
+            overflow-y: auto;
+            font-size: 14.5px;
+            line-height: 1.7;
+            white-space: pre-wrap;
+            color: #eee;
+            padding: 16px;
+        }
+    </style>
+</head>
+<body>
+
+<ons-page id="app-page">
+    <ons-toolbar>
+        <div class="center toolbar-title">Radiko Player</div>
+    </ons-toolbar>
+
+    <div class="player-wrap">
+
+        <ons-card class="meta-card">
+            <div class="cover-art" id="cover-art" title="タップで歌詞を表示">[No Cover]</div>
+            <div class="track-info">
+                <div class="track-title" id="track-title">-</div>
+                <div class="track-album" id="track-album">-</div>
+                <div class="track-artist" id="track-artist">-</div>
+            </div>
+        </ons-card>
+
+        <div class="status-bar">
+            <div class="resume-status" id="resume-status"></div>
+            <div class="time-display" id="time-display">00:00 / 00:00</div>
+        </div>
+
+        <div class="multi-seekbar-container" id="multi-seekbar-container"></div>
+
+        <div class="bottom-controls">
+            <label class="folder-btn" title="音声ファイルを選択">
+                <ons-icon icon="md-folder"></ons-icon>
+                <input type="file" id="audio-file" accept="audio/*">
+            </label>
+
+            <div class="play-btn" id="play-btn"><ons-icon icon="md-play" id="play-icon"></ons-icon></div>
+
+            <div class="spacer-46"></div>
+        </div>
+
+        <audio id="audio-player" style="display: none;"></audio>
+    </div>
+
+    <ons-dialog id="lyrics-dialog" cancelable>
+        <div class="lyrics-header">
+            <span>歌詞表示</span>
+            <ons-icon icon="md-close" id="lyrics-close"></ons-icon>
+        </div>
+        <div class="lyrics-content" id="lyrics-content">歌詞情報がありません。</div>
+    </ons-dialog>
+
+</ons-page>
+
+<script>
+    // --- Service Worker の登録処理 (PWA用) ---
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+                .then(reg => console.log('SW登録成功'))
+                .catch(err => console.log('SW登録失敗', err));
+        });
+    }
+
+    const fileInput = document.getElementById('audio-file');
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const playIcon = document.getElementById('play-icon');
+    const timeDisplay = document.getElementById('time-display');
+    const seekbarContainer = document.getElementById('multi-seekbar-container');
+
+    // UI要素
+    const trackTitle = document.getElementById('track-title');
+    const trackAlbum = document.getElementById('track-album');
+    const trackArtist = document.getElementById('track-artist');
+    const coverArt = document.getElementById('cover-art');
+    const resumeStatus = document.getElementById('resume-status');
+    const lyricsDialog = document.getElementById('lyrics-dialog');
+    const lyricsContent = document.getElementById('lyrics-content');
+    const lyricsClose = document.getElementById('lyrics-close');
+
+    let currentFileName = "";
+    const NUM_BARS = 10; // シークバーの分割数
+    let timePerBar = 0;
+    let seekSegments = []; // 生成したスライダー要素を格納する配列
+    let isDragging = false; // スライダー操作中かどうかのフラグ
+
+    // --- 10段シークバーの初期化 ---
+    function initMultiSeekbar() {
+        seekbarContainer.innerHTML = '';
+        seekSegments = [];
+
+        for (let i = 0; i < NUM_BARS; i++) {
+            const input = document.createElement('input');
+            input.type = 'range';
+            input.className = 'seek-segment';
+            input.min = 0;
+            input.max = 100; // 仮の最大値（データロード後に更新）
+            input.value = 0;
+            input.step = 0.1;
+            input.style.setProperty('--val', '0%');
+
+            // スライダーを操作したときの処理
+            input.addEventListener('input', (e) => {
+                isDragging = true;
+                const val = parseFloat(e.target.value);
+                const percent = (val / timePerBar) * 100;
+                input.style.setProperty('--val', `${percent}%`);
+                updateTimeDisplay((i * timePerBar) + val, audioPlayer.duration);
+            });
+
+            // スライダーから指を離したとき（シーク確定）
+            input.addEventListener('change', (e) => {
+                const val = parseFloat(e.target.value);
+                audioPlayer.currentTime = (i * timePerBar) + val;
+                isDragging = false;
+            });
+
+            seekSegments.push(input);
+            seekbarContainer.appendChild(input);
+        }
+    }
+
+    // 初期状態で空のバーを作っておく
+    initMultiSeekbar();
+
+    // --- 時間フォーマット関数 ---
+    function formatTime(seconds) {
+        if (isNaN(seconds)) return "00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function updateTimeDisplay(current, total) {
+        timeDisplay.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+    }
+
+    // --- ファイル読み込み処理 ---
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        currentFileName = file.name;
+        resumeStatus.textContent = "";
+        lyricsDialog.hide().catch(() => {});
+
+        // 1. タグ情報の読み込み (jsmediatags)
+        jsmediatags.read(file, {
+            onSuccess: function(tag) {
+                const tags = tag.tags;
+                trackTitle.textContent = tags.title || file.name;
+                trackAlbum.textContent = tags.album || "-";
+                trackArtist.textContent = tags.artist || "-";
+
+                let loadedLyrics = tags.lyrics || (tags.unsynchronisedLyrics ? tags.unsynchronisedLyrics.text : "");
+                lyricsContent.textContent = loadedLyrics ? loadedLyrics : "歌詞情報が含まれていないか、読み込めませんでした。";
+
+                if (tags.picture) {
+                    const { data, format } = tags.picture;
+                    let base64String = "";
+                    for (let i = 0; i < data.length; i++) {
+                        base64String += String.fromCharCode(data[i]);
+                    }
+                    coverArt.style.backgroundImage = `url(data:${format};base64,${btoa(base64String)})`;
+                    coverArt.textContent = "";
+                } else {
+                    coverArt.style.backgroundImage = "none";
+                    coverArt.textContent = "[No Cover] (タップで歌詞)";
+                }
+            },
+            onError: function() {
+                trackTitle.textContent = file.name;
+                coverArt.style.backgroundImage = "none";
+                coverArt.textContent = "[No Cover]";
+                lyricsContent.textContent = "タグの読み込みエラー。";
+            }
+        });
+
+        // 2. 音声ソースの設定
+        audioPlayer.src = URL.createObjectURL(file);
+    });
+
+    // --- 音声メタデータ読み込み完了時の処理 ---
+    audioPlayer.addEventListener('loadedmetadata', () => {
+        const duration = audioPlayer.duration;
+        timePerBar = duration / NUM_BARS; // 1本あたりの時間を計算
+
+        // 各スライダーの最大値を設定
+        seekSegments.forEach(segment => {
+            segment.max = timePerBar;
+            segment.value = 0;
+            segment.style.setProperty('--val', '0%');
+        });
+
+        updateTimeDisplay(0, duration);
+
+        // 3. レジュームの復元
+        const savedTime = localStorage.getItem(`resume_${currentFileName}`);
+        if (savedTime) {
+            audioPlayer.currentTime = parseFloat(savedTime);
+            resumeStatus.textContent = `前回位置から再開`;
+            setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+        }
+
+        audioPlayer.play().catch(e => console.log("自動再生ブロック"));
+    });
+
+    // --- 再生中のプログレスバー更新 ---
+    audioPlayer.addEventListener('timeupdate', () => {
+        if (!timePerBar || isDragging) return;
+
+        const current = audioPlayer.currentTime;
+        updateTimeDisplay(current, audioPlayer.duration);
+
+        // 現在どのバーにいるか（0〜9）
+        let activeIndex = Math.floor(current / timePerBar);
+        if (activeIndex >= NUM_BARS) activeIndex = NUM_BARS - 1;
+
+        seekSegments.forEach((segment, index) => {
+            if (index < activeIndex) {
+                segment.value = timePerBar;
+                segment.style.setProperty('--val', '100%');
+            } else if (index === activeIndex) {
+                const remainder = current % timePerBar;
+                segment.value = remainder;
+                const percent = (remainder / timePerBar) * 100;
+                segment.style.setProperty('--val', `${percent}%`);
+            } else {
+                segment.value = 0;
+                segment.style.setProperty('--val', '0%');
+            }
+        });
+
+        // レジューム位置の保存
+        if (currentFileName && current > 0) {
+            localStorage.setItem(`resume_${currentFileName}`, current);
+        }
+    });
+
+    // --- 再生/一時停止ボタンの制御 ---
+    playBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        if (audioPlayer.paused) {
+            audioPlayer.play();
+        } else {
+            audioPlayer.pause();
+        }
+    });
+
+    audioPlayer.addEventListener('play', () => {
+        playIcon.setAttribute('icon', 'md-pause');
+    });
+
+    audioPlayer.addEventListener('pause', () => {
+        playIcon.setAttribute('icon', 'md-play');
+    });
+
+    audioPlayer.addEventListener('ended', () => {
+        playIcon.setAttribute('icon', 'md-play');
+        if (currentFileName) localStorage.removeItem(`resume_${currentFileName}`);
+    });
+
+    // --- 歌詞表示制御（ons-dialogを使用） ---
+    coverArt.addEventListener('click', () => {
+        if (currentFileName) lyricsDialog.show();
+    });
+    lyricsClose.addEventListener('click', () => lyricsDialog.hide());
+</script>
+</body>
+</html>
