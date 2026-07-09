@@ -170,10 +170,10 @@
             width: 24px;
             height: 24px;
             fill: #ffffff;
-            margin-left: 3px; /* 再生アイコンの視覚的な中央揃え */
+            margin-left: 3px;
         }
         .play-btn.playing svg {
-            margin-left: 0; /* 一時停止アイコンは中央へ */
+            margin-left: 0;
         }
 
         /* HPボタン */
@@ -346,7 +346,6 @@
                 audioPlayer.currentTime = (i * timePerBar) + val;
                 isDragging = false;
                 
-                // シーク前に再生中だった場合は強制的に再生を再開する（停止バグ対策）
                 if (wasPlayingBeforeDrag) {
                     audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
                 }
@@ -394,16 +393,44 @@
                 let loadedLyrics = tags.lyrics || (tags.unsynchronisedLyrics ? tags.unsynchronisedLyrics.text : "");
                 lyricsContent.textContent = loadedLyrics ? loadedLyrics : "歌詞情報が含まれていないか、読み込めませんでした。";
 
-                // HPタグ（URL）の自動検索
-                // JSONに変換して "http" から始まる文字列を正規表現で探すことで、あらゆる独自タグに柔軟に対応します
-                try {
-                    const tagsString = JSON.stringify(tags);
-                    const urlMatch = tagsString.match(/https?:\/\/[a-zA-Z0-9.\-_~:/?#[\]@!$&'()*+,;=%]+/);
-                    if (urlMatch) {
-                        currentHpUrl = urlMatch[0];
-                        hpBtn.classList.remove('disabled');
+                // ----------------------------------------------------
+                // 改良版: HPタグ（URL）の取得ロジック
+                // ----------------------------------------------------
+                let foundUrl = null;
+
+                // 1. 特定の「HP」タグが存在するか優先チェック
+                if (tags.HP && typeof tags.HP === 'string') {
+                    foundUrl = tags.HP;
+                } else if (tags.hp && typeof tags.hp === 'string') {
+                    foundUrl = tags.hp;
+                } else if (tags.TXXX) {
+                    // ID3v2タグのTXXX (ユーザー定義テキスト) の中からHPを探す
+                    const txxxArray = Array.isArray(tags.TXXX) ? tags.TXXX : [tags.TXXX];
+                    for (let t of txxxArray) {
+                        if (t.data && t.data.description && t.data.description.toUpperCase() === 'HP') {
+                            foundUrl = t.data.text;
+                            break;
+                        }
                     }
-                } catch(e) {}
+                }
+
+                // 2. HPタグが見つからなかった場合、メタデータ全体の文字列からURLを探す（フォールバック）
+                if (!foundUrl) {
+                    try {
+                        const tagsString = JSON.stringify(tags);
+                        const urlMatch = tagsString.match(/https?:\/\/[a-zA-Z0-9.\-_~:/?#[\]@!$&'()*+,;=%]+/);
+                        if (urlMatch) {
+                            foundUrl = urlMatch[0];
+                        }
+                    } catch(e) {}
+                }
+
+                // URLが見つかり、かつ http から始まっていれば有効化
+                if (foundUrl && foundUrl.startsWith('http')) {
+                    currentHpUrl = foundUrl;
+                    hpBtn.classList.remove('disabled');
+                }
+                // ----------------------------------------------------
 
                 // アートワークの取得
                 if (tags.picture) {
