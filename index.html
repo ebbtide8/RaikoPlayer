@@ -156,14 +156,12 @@
             height: 54px;
             background-color: #1f6aa5;
             border-radius: 50%;
-            position: absolute;
-            left: 50%;
-            transform: translateX(-50%);
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            flex-shrink: 0;
         }
         .play-btn:hover {
             background-color: #144d77;
-            transform: translateX(-50%) scale(1.05);
+            transform: scale(1.05);
         }
         .play-btn svg {
             width: 24px;
@@ -173,6 +171,44 @@
         }
         .play-btn.playing svg {
             margin-left: 0;
+        }
+
+        /* 10秒早送り・巻き戻しボタン */
+        .skip-btn {
+            flex-direction: column;
+            gap: 2px;
+        }
+        .skip-btn svg {
+            width: 26px;
+            height: 26px;
+        }
+        .skip-label {
+            font-size: 10px;
+            color: #ccc;
+            line-height: 1;
+            user-select: none;
+        }
+
+        /* スリープタイマー */
+        .sleep-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 14px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .sleep-row .icon-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+        .icon-btn.active svg {
+            fill: #2ecc71;
+        }
+        #sleep-status.active {
+            color: #2ecc71;
+            font-family: monospace;
         }
 
         /* HPボタン */
@@ -251,18 +287,41 @@
             </svg>
             <input type="file" id="audio-file" accept="audio/*">
         </label>
-        
+
+        <div class="icon-btn skip-btn" id="rewind-btn" title="10秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
         <div class="icon-btn play-btn" id="play-btn">
             <svg viewBox="0 0 24 24" id="play-icon">
                 <path d="M8 5v14l11-7z"/>
             </svg>
         </div>
-        
+
+        <div class="icon-btn skip-btn" id="forward-btn" title="10秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
         <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
             <svg viewBox="0 0 24 24">
                 <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
             </svg>
         </div>
+    </div>
+
+    <div class="sleep-row">
+        <div class="icon-btn" id="sleep-btn" title="スリープタイマー（クリックで切替）">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
+            </svg>
+        </div>
+        <span id="sleep-status">スリープ OFF</span>
     </div>
 
     <audio id="audio-player" style="display: none;"></audio>
@@ -287,6 +346,10 @@
     const audioPlayer = document.getElementById('audio-player');
     const playBtn = document.getElementById('play-btn');
     const hpBtn = document.getElementById('hp-btn');
+    const rewindBtn = document.getElementById('rewind-btn');
+    const forwardBtn = document.getElementById('forward-btn');
+    const sleepBtn = document.getElementById('sleep-btn');
+    const sleepStatus = document.getElementById('sleep-status');
     const timeDisplay = document.getElementById('time-display');
     const seekbarContainer = document.getElementById('multi-seekbar-container');
     
@@ -547,6 +610,76 @@
         if (currentHpUrl && !hpBtn.classList.contains('disabled')) {
             window.open(currentHpUrl, '_blank');
         }
+    });
+
+    // ----------------------------------------------------
+    // 10秒早送り・10秒巻き戻し
+    // ----------------------------------------------------
+    rewindBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+    });
+
+    forwardBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+    });
+
+    // ----------------------------------------------------
+    // スリープタイマー（クリックでOFF→15→30→45→60→90分を循環）
+    // ----------------------------------------------------
+    const SLEEP_PRESETS = [0, 15, 30, 45, 60, 90]; // 分。0はOFF
+    let sleepIndex = 0;
+    let sleepTimeoutId = null;
+    let sleepIntervalId = null;
+    let sleepEndTime = null;
+
+    function clearSleepTimer() {
+        if (sleepTimeoutId) clearTimeout(sleepTimeoutId);
+        if (sleepIntervalId) clearInterval(sleepIntervalId);
+        sleepTimeoutId = null;
+        sleepIntervalId = null;
+        sleepEndTime = null;
+        sleepBtn.classList.remove('active');
+        sleepStatus.classList.remove('active');
+    }
+
+    function updateSleepDisplay() {
+        if (!sleepEndTime) return;
+        const remainMs = sleepEndTime - Date.now();
+        if (remainMs <= 0) {
+            sleepStatus.textContent = 'スリープ OFF';
+            return;
+        }
+        const totalSec = Math.ceil(remainMs / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        sleepStatus.textContent = `スリープ ${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function startSleepTimer(minutes) {
+        clearSleepTimer();
+        if (minutes <= 0) {
+            sleepStatus.textContent = 'スリープ OFF';
+            return;
+        }
+        sleepEndTime = Date.now() + minutes * 60 * 1000;
+        sleepBtn.classList.add('active');
+        sleepStatus.classList.add('active');
+        updateSleepDisplay();
+        sleepIntervalId = setInterval(updateSleepDisplay, 1000);
+        sleepTimeoutId = setTimeout(() => {
+            audioPlayer.pause();
+            sleepIndex = 0;
+            clearSleepTimer();
+            sleepStatus.textContent = 'スリープ OFF';
+        }, minutes * 60 * 1000);
+    }
+
+    sleepBtn.addEventListener('click', () => {
+        sleepIndex = (sleepIndex + 1) % SLEEP_PRESETS.length;
+        startSleepTimer(SLEEP_PRESETS[sleepIndex]);
     });
 
     coverArt.addEventListener('click', () => {
