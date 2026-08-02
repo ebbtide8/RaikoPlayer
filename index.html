@@ -94,34 +94,40 @@
         .resume-status { color: #2ecc71; }
         .time-display { color: #aaa; font-family: monospace; font-size: 14px; }
         
-        /* 10段シークバー */
-        .multi-seekbar-container {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
+        /* シークバー（通常の1本） */
+        .seekbar-container {
             margin-bottom: 20px;
         }
-        .seek-segment {
+        .seek-bar {
             -webkit-appearance: none;
             width: 100%;
-            height: 16px;
+            height: 10px;
             background: #444;
             border-radius: 4px;
             outline: none;
             cursor: pointer;
+            margin: 0;
         }
-        .seek-segment::-webkit-slider-thumb {
+        .seek-bar::-webkit-slider-thumb {
             -webkit-appearance: none;
             appearance: none;
-            width: 24px;
-            height: 24px;
+            width: 20px;
+            height: 20px;
             background: #1f6aa5;
             border-radius: 50%;
             cursor: pointer;
             transition: transform 0.1s;
         }
-        .seek-segment::-webkit-slider-thumb:hover { transform: scale(1.2); }
-        .seek-segment {
+        .seek-bar::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        .seek-bar::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #1f6aa5;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        .seek-bar {
             background: linear-gradient(to right, #1f6aa5 0%, #1f6aa5 var(--val, 0%), #444 var(--val, 0%), #444 100%);
         }
 
@@ -130,7 +136,7 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 15px;
+            padding: 0 4px;
             height: 60px;
             position: relative;
         }
@@ -141,19 +147,20 @@
             align-items: center;
             cursor: pointer;
             transition: transform 0.2s, opacity 0.2s;
+            flex-shrink: 0;
         }
         .icon-btn:hover { transform: scale(1.1); }
         .icon-btn svg {
-            width: 28px;
-            height: 28px;
+            width: 24px;
+            height: 24px;
             fill: #ffffff;
         }
         input[type="file"] { display: none; }
         
         /* 中央の再生ボタン */
         .play-btn {
-            width: 54px;
-            height: 54px;
+            width: 48px;
+            height: 48px;
             background-color: #1f6aa5;
             border-radius: 50%;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -164,8 +171,8 @@
             transform: scale(1.05);
         }
         .play-btn svg {
-            width: 24px;
-            height: 24px;
+            width: 22px;
+            height: 22px;
             fill: #ffffff;
             margin-left: 3px;
         }
@@ -173,17 +180,17 @@
             margin-left: 0;
         }
 
-        /* 10秒早送り・巻き戻しボタン */
+        /* 早送り・巻き戻しボタン（10秒／30秒） */
         .skip-btn {
             flex-direction: column;
             gap: 2px;
         }
         .skip-btn svg {
-            width: 26px;
-            height: 26px;
+            width: 22px;
+            height: 22px;
         }
         .skip-label {
-            font-size: 10px;
+            font-size: 9px;
             color: #ccc;
             line-height: 1;
             user-select: none;
@@ -277,7 +284,8 @@
         <div class="time-display" id="time-display">00:00 / 00:00</div>
     </div>
     
-    <div class="multi-seekbar-container" id="multi-seekbar-container">
+    <div class="seekbar-container">
+        <input type="range" class="seek-bar" id="seek-bar" min="0" max="100" value="0" step="0.1">
     </div>
     
     <div class="bottom-controls">
@@ -287,6 +295,13 @@
             </svg>
             <input type="file" id="audio-file" accept="audio/*">
         </label>
+
+        <div class="icon-btn skip-btn" id="rewind30-btn" title="30秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
+        </div>
 
         <div class="icon-btn skip-btn" id="rewind-btn" title="10秒巻き戻し">
             <svg viewBox="0 0 24 24">
@@ -306,6 +321,13 @@
                 <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
             </svg>
             <span class="skip-label">10</span>
+        </div>
+
+        <div class="icon-btn skip-btn" id="forward30-btn" title="30秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
         </div>
 
         <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
@@ -351,7 +373,9 @@
     const sleepBtn = document.getElementById('sleep-btn');
     const sleepStatus = document.getElementById('sleep-status');
     const timeDisplay = document.getElementById('time-display');
-    const seekbarContainer = document.getElementById('multi-seekbar-container');
+    const seekBar = document.getElementById('seek-bar');
+    const rewind30Btn = document.getElementById('rewind30-btn');
+    const forward30Btn = document.getElementById('forward30-btn');
     
     const trackTitle = document.getElementById('track-title');
     const trackAlbum = document.getElementById('track-album');
@@ -364,56 +388,39 @@
 
     let currentFileName = "";
     let currentHpUrl = "";
-    const NUM_BARS = 10;
-    let timePerBar = 0;
-    let seekSegments = [];
     let isDragging = false;
     let wasPlayingBeforeDrag = false;
+    let lastSavedTime = 0;
+    const RESUME_SAVE_INTERVAL = 2; // 秒。厳密なレジューム精度は不要のため間引いて保存
 
     const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
     const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
 
-    function initMultiSeekbar() {
-        seekbarContainer.innerHTML = '';
-        seekSegments = [];
-        
-        for (let i = 0; i < NUM_BARS; i++) {
-            const input = document.createElement('input');
-            input.type = 'range';
-            input.className = 'seek-segment';
-            input.min = 0;
-            input.max = 100;
-            input.value = 0;
-            input.step = 0.1;
-            input.style.setProperty('--val', '0%');
-            
-            input.addEventListener('input', (e) => {
-                if (!isDragging) {
-                    isDragging = true;
-                    wasPlayingBeforeDrag = !audioPlayer.paused;
-                }
-                const val = parseFloat(e.target.value);
-                const percent = (val / timePerBar) * 100;
-                input.style.setProperty('--val', `${percent}%`);
-                updateTimeDisplay((i * timePerBar) + val, audioPlayer.duration);
-            });
-            
-            input.addEventListener('change', (e) => {
-                const val = parseFloat(e.target.value);
-                audioPlayer.currentTime = (i * timePerBar) + val;
-                isDragging = false;
-                
-                if (wasPlayingBeforeDrag) {
-                    audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
-                }
-            });
-            
-            seekSegments.push(input);
-            seekbarContainer.appendChild(input);
-        }
+    function updateSeekBarVisual(current, duration) {
+        if (!duration || isNaN(duration)) return;
+        const percent = (current / duration) * 100;
+        seekBar.style.setProperty('--val', `${percent}%`);
     }
-    
-    initMultiSeekbar();
+
+    seekBar.addEventListener('input', (e) => {
+        if (!isDragging) {
+            isDragging = true;
+            wasPlayingBeforeDrag = !audioPlayer.paused;
+        }
+        const val = parseFloat(e.target.value);
+        updateSeekBarVisual(val, audioPlayer.duration);
+        updateTimeDisplay(val, audioPlayer.duration);
+    });
+
+    seekBar.addEventListener('change', (e) => {
+        const val = parseFloat(e.target.value);
+        audioPlayer.currentTime = val;
+        isDragging = false;
+
+        if (wasPlayingBeforeDrag) {
+            audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
+        }
+    });
 
     function formatTime(seconds) {
         if (isNaN(seconds)) return "00:00";
@@ -520,13 +527,11 @@
 
     audioPlayer.addEventListener('loadedmetadata', () => {
         const duration = audioPlayer.duration;
-        timePerBar = duration / NUM_BARS;
-        
-        seekSegments.forEach(segment => {
-            segment.max = timePerBar;
-            segment.value = 0;
-            segment.style.setProperty('--val', '0%');
-        });
+
+        seekBar.min = 0;
+        seekBar.max = isFinite(duration) ? duration : 0;
+        seekBar.value = 0;
+        seekBar.style.setProperty('--val', '0%');
 
         updateTimeDisplay(0, duration);
 
@@ -537,35 +542,22 @@
             setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
         }
 
+        lastSavedTime = audioPlayer.currentTime;
         audioPlayer.play().catch(e => console.log("自動再生ブロック"));
     });
 
     audioPlayer.addEventListener('timeupdate', () => {
-        if (!timePerBar || isDragging) return;
-        
+        if (isDragging) return;
+
         const current = audioPlayer.currentTime;
         updateTimeDisplay(current, audioPlayer.duration);
-        
-        let activeIndex = Math.floor(current / timePerBar);
-        if (activeIndex >= NUM_BARS) activeIndex = NUM_BARS - 1;
+        updateSeekBarVisual(current, audioPlayer.duration);
+        seekBar.value = current;
 
-        seekSegments.forEach((segment, index) => {
-            if (index < activeIndex) {
-                segment.value = timePerBar;
-                segment.style.setProperty('--val', '100%');
-            } else if (index === activeIndex) {
-                const remainder = current % timePerBar;
-                segment.value = remainder;
-                const percent = (remainder / timePerBar) * 100;
-                segment.style.setProperty('--val', `${percent}%`);
-            } else {
-                segment.value = 0;
-                segment.style.setProperty('--val', '0%');
-            }
-        });
-
-        if (currentFileName && current > 0) {
+        // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する
+        if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
             localStorage.setItem(`resume_${currentFileName}`, current);
+            lastSavedTime = current;
         }
     });
 
@@ -598,6 +590,10 @@
     audioPlayer.addEventListener('pause', () => {
         playBtn.innerHTML = svgPlay;
         playBtn.classList.remove('playing');
+        if (currentFileName && audioPlayer.currentTime > 0) {
+            localStorage.setItem(`resume_${currentFileName}`, audioPlayer.currentTime);
+            lastSavedTime = audioPlayer.currentTime;
+        }
     });
 
     audioPlayer.addEventListener('ended', () => {
@@ -613,7 +609,7 @@
     });
 
     // ----------------------------------------------------
-    // 10秒早送り・10秒巻き戻し
+    // 早送り・巻き戻し（10秒／30秒）
     // ----------------------------------------------------
     rewindBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
@@ -624,6 +620,17 @@
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+    });
+
+    rewind30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
+    });
+
+    forward30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
     });
 
     // ----------------------------------------------------
