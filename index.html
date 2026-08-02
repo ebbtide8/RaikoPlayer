@@ -218,6 +218,27 @@
             font-family: monospace;
         }
 
+        /* ブランク（無音）スキップ */
+        .blank-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 10px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .blank-row .icon-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+        .blank-skip-btn.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+        .blank-skip-btn.disabled:hover { transform: scale(1); }
+        #blank-status.ready { color: #2ecc71; }
+
         /* HPボタン */
         .hp-btn {
             opacity: 1;
@@ -337,6 +358,15 @@
         </div>
     </div>
 
+    <div class="blank-row">
+        <div class="icon-btn blank-skip-btn disabled" id="blank-skip-btn" title="次のブランク（無音）へスキップ">
+            <svg viewBox="0 0 24 24">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
+        <span id="blank-status">ブランク検出: 待機中</span>
+    </div>
+
     <div class="sleep-row">
         <div class="icon-btn" id="sleep-btn" title="スリープタイマー（クリックで切替）">
             <svg viewBox="0 0 24 24">
@@ -372,6 +402,8 @@
     const forwardBtn = document.getElementById('forward-btn');
     const sleepBtn = document.getElementById('sleep-btn');
     const sleepStatus = document.getElementById('sleep-status');
+    const blankSkipBtn = document.getElementById('blank-skip-btn');
+    const blankStatus = document.getElementById('blank-status');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -392,6 +424,9 @@
     let wasPlayingBeforeDrag = false;
     let lastSavedTime = 0;
     const RESUME_SAVE_INTERVAL = 2; // 秒。厳密なレジューム精度は不要のため間引いて保存
+
+    let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）
+    let blankScanToken = 0;       // ファイル切り替え時に古いスキャン結果を無視するためのトークン
 
     const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
     const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
@@ -435,6 +470,128 @@
         timeDisplay.textContent = `${formatTime(current)} / ${formatTime(total)}`;
     }
 
+    // ----------------------------------------------------
+    // ブランク（無音）検出：ファイル読込み時に一度だけ低サンプルレートで解析
+    // ----------------------------------------------------
+    function updateBlankUI(state) {
+        // state: 'idle' | 'scanning' | 'done' | 'error' | 'unsupported'
+        blankStatus.classList.remove('ready');
+        if (state === 'idle') {
+            blankStatus.textContent = 'ブランク検出: 待機中';
+            blankSkipBtn.classList.add('disabled');
+        } else if (state === 'scanning') {
+            blankStatus.textContent = 'ブランク検出: 解析中…';
+            blankSkipBtn.classList.add('disabled');
+        } else if (state === 'done') {
+            blankStatus.textContent = `ブランク検出: ${blankIntervals.length}件`;
+            blankStatus.classList.add('ready');
+            if (blankIntervals.length > 0) {
+                blankSkipBtn.classList.remove('disabled');
+            } else {
+                blankSkipBtn.classList.add('disabled');
+            }
+        } else if (state === 'unsupported') {
+            blankStatus.textContent = 'ブランク検出: 非対応ブラウザ';
+            blankSkipBtn.classList.add('disabled');
+        } else {
+            blankStatus.textContent = 'ブランク検出: 失敗';
+            blankSkipBtn.classList.add('disabled');
+        }
+    }
+
+    async function scanForBlanks(file) {
+        const myToken = ++blankScanToken;
+        blankIntervals = [];
+        updateBlankUI('idle');
+
+        const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
+        if (!OfflineCtx) {
+            updateBlankUI('unsupported');
+            return;
+        }
+
+        updateBlankUI('scanning');
+
+        try {
+            // 8kHz・モノラルまで落として解析することでメモリ消費を大幅に抑える
+            // （精度は多少粗くなるが、1秒以上の無音検出には十分）
+            const SAMPLE_RATE = 8000;
+            const arrayBuffer = await file.arrayBuffer();
+            const scanCtx = new OfflineCtx(1, 1, SAMPLE_RATE);
+            const audioBuffer = await scanCtx.decodeAudioData(arrayBuffer);
+
+            if (myToken !== blankScanToken) return; // 別ファイルに切り替わっていたら破棄
+
+            const data = audioBuffer.getChannelData(0);
+            const sr = audioBuffer.sampleRate;
+            const totalLen = data.length;
+
+            const WINDOW_SEC = 0.05;          // 50ms窓でRMSを計算
+            const SILENCE_THRESHOLD = 0.02;   // 振幅しきい値（厳密さより検出漏れの少なさを優先）
+            const MIN_BLANK_SEC = 1.0;        // 1秒未満の無音は無視
+            const BRIDGE_GAP_SEC = 0.15;      // ごく短いノイズ混入は無音区間として橋渡し
+            const windowSize = Math.max(1, Math.round(sr * WINDOW_SEC));
+
+            const rawIntervals = [];
+            let curStart = null;
+
+            for (let i = 0; i < totalLen; i += windowSize) {
+                const end = Math.min(i + windowSize, totalLen);
+                let sumSq = 0;
+                for (let j = i; j < end; j++) {
+                    sumSq += data[j] * data[j];
+                }
+                const rms = Math.sqrt(sumSq / (end - i));
+                const t = i / sr;
+
+                if (rms < SILENCE_THRESHOLD) {
+                    if (curStart === null) curStart = t;
+                } else if (curStart !== null) {
+                    rawIntervals.push({ start: curStart, end: t });
+                    curStart = null;
+                }
+            }
+            if (curStart !== null) {
+                rawIntervals.push({ start: curStart, end: totalLen / sr });
+            }
+
+            // 短い非無音ギャップを橋渡ししてから、規定秒数未満の無音を除外
+            const merged = [];
+            for (const iv of rawIntervals) {
+                const last = merged[merged.length - 1];
+                if (last && iv.start - last.end < BRIDGE_GAP_SEC) {
+                    last.end = iv.end;
+                } else {
+                    merged.push({ start: iv.start, end: iv.end });
+                }
+            }
+
+            if (myToken !== blankScanToken) return;
+
+            blankIntervals = merged.filter(iv => (iv.end - iv.start) >= MIN_BLANK_SEC);
+            updateBlankUI('done');
+        } catch (err) {
+            console.log('ブランク検出エラー', err);
+            if (myToken === blankScanToken) updateBlankUI('error');
+        }
+    }
+
+    function jumpToNextBlank() {
+        if (!blankIntervals.length || !audioPlayer.src) return;
+        const cur = audioPlayer.currentTime;
+        // 現在位置より後ろにある（まだ通過していない）最初の無音区間の「終わり」へ飛ぶ
+        const next = blankIntervals.find(iv => iv.end > cur + 0.5);
+        if (next) {
+            const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : next.end;
+            audioPlayer.currentTime = Math.min(next.end, dur);
+        }
+    }
+
+    blankSkipBtn.addEventListener('click', () => {
+        if (blankSkipBtn.classList.contains('disabled')) return;
+        jumpToNextBlank();
+    });
+
     fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
         if (!file) return;
@@ -444,6 +601,9 @@
         hpBtn.classList.add('disabled');
         resumeStatus.textContent = ""; 
         lyricsOverlay.classList.remove('active'); 
+
+        // ブランク（無音）検出を非同期でバックグラウンド実行（再生を妨げない）
+        scanForBlanks(file);
 
         jsmediatags.read(file, {
             onSuccess: function(tag) {
