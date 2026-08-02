@@ -427,6 +427,17 @@
 
     let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）
     let blankScanToken = 0;       // ファイル切り替え時に古いスキャン結果を無視するためのトークン
+    let blankLocalDone = false;   // このファイルでローカルスキャンが完了したか
+    let pendingScanFile = null;   // loadedmetadataでdurationが分かってからスキャンを開始するための一時保持
+
+    // 長時間ファイルをフルデコードするとタブがメモリ不足になり、
+    // 特にAndroid Chromeではタブごとクラッシュして再生まで止まってしまう。
+    // durationが分かった時点で上限を超えていればスキャン自体を行わず、再生を優先する。
+    // （Macは比較的メモリに余裕があり、失敗しても再生は止まらないため上限を長めに設定）
+    const isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
+    const MAX_SCAN_DURATION_SEC = isMobileUA ? 100 * 60 : 180 * 60; // モバイル:100分 / PC:180分
+
+    let syncBackoffUntil = 0;     // Mac同期サーバーに繋がらない場合、しばらく再試行を控える（無駄な待ち時間を防ぐ）
 
     const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
     const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
@@ -471,6 +482,81 @@
     }
 
     // ----------------------------------------------------
+    // Mac側ローカル同期サーバーとの通信
+    // ・GitHub Pages等で開いている場合や、Macが同じWi-Fiにいない場合は
+    //   単に失敗するだけで、通常のローカル保存にフォールバックする
+    // ・接続に失敗したら30秒はリトライを控える（毎回長く待たされるのを防ぐ）
+    // ----------------------------------------------------
+    async function syncFetch(fileName) {
+        if (Date.now() < syncBackoffUntil) return null;
+        try {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), 1500);
+            const res = await fetch(`/api/state?file=${encodeURIComponent(fileName)}`, {
+                cache: 'no-store',
+                signal: controller.signal
+            });
+            clearTimeout(timer);
+            if (!res.ok) { syncBackoffUntil = Date.now() + 30000; return null; }
+            return await res.json();
+        } catch (e) {
+            syncBackoffUntil = Date.now() + 30000;
+            return null;
+        }
+    }
+
+    function syncPost(payload) {
+        if (Date.now() < syncBackoffUntil) return;
+        const controller = new AbortController();
+        const timer = setTimeout(() => controller.abort(), 1500);
+        fetch('/api/state', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload),
+            signal: controller.signal
+        }).then(() => clearTimeout(timer)).catch(() => {
+            clearTimeout(timer);
+            syncBackoffUntil = Date.now() + 30000;
+        });
+    }
+
+    function saveResumePosition(position) {
+        if (!currentFileName || position <= 0) return;
+        const record = { position, updatedAt: Date.now() };
+        localStorage.setItem(`resume_${currentFileName}`, JSON.stringify(record));
+        lastSavedTime = position;
+        syncPost({ file: currentFileName, resume: record });
+    }
+
+    // 別端末（Mac⇔Android）で保存されたレジューム位置・ブランク検出結果を取得して反映
+    async function handleRemoteSync(fileName, myToken) {
+        const remote = await syncFetch(fileName);
+        if (myToken !== blankScanToken) return; // その間に別のファイルへ切り替わっていたら破棄
+
+        if (remote && remote.resume) {
+            const rawLocal = localStorage.getItem(`resume_${fileName}`);
+            let localRecord = null;
+            try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
+
+            if (!localRecord || remote.resume.updatedAt > localRecord.updatedAt) {
+                localStorage.setItem(`resume_${fileName}`, JSON.stringify(remote.resume));
+                // 再生開始直後であれば、もう一方の端末の続きの位置に合わせる
+                if (audioPlayer.currentTime < 3 && remote.resume.position > 0) {
+                    audioPlayer.currentTime = remote.resume.position;
+                    resumeStatus.textContent = '前回位置から再開（Mac同期）';
+                    setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+                }
+            }
+        }
+
+        if (remote && remote.blanks && Array.isArray(remote.blanks.intervals) && !blankLocalDone) {
+            blankScanToken++; // ローカルスキャンが後から終わっても、この結果を上書きさせない
+            blankIntervals = remote.blanks.intervals;
+            updateBlankUI('done');
+        }
+    }
+
+    // ----------------------------------------------------
     // ブランク（無音）検出：ファイル読込み時に一度だけ低サンプルレートで解析
     // ----------------------------------------------------
     function updateBlankUI(state) {
@@ -493,15 +579,18 @@
         } else if (state === 'unsupported') {
             blankStatus.textContent = 'ブランク検出: 非対応ブラウザ';
             blankSkipBtn.classList.add('disabled');
+        } else if (state === 'toolong') {
+            blankStatus.textContent = 'ブランク検出: 長時間のため未対応（再生には影響ありません）';
+            blankSkipBtn.classList.add('disabled');
         } else {
             blankStatus.textContent = 'ブランク検出: 失敗';
             blankSkipBtn.classList.add('disabled');
         }
     }
 
-    async function scanForBlanks(file) {
-        const myToken = ++blankScanToken;
+    async function scanForBlanks(file, myToken) {
         blankIntervals = [];
+        blankLocalDone = false;
         updateBlankUI('idle');
 
         const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
@@ -527,9 +616,9 @@
             const totalLen = data.length;
 
             const WINDOW_SEC = 0.05;          // 50ms窓でRMSを計算
-            const SILENCE_THRESHOLD = 0.02;   // 振幅しきい値（厳密さより検出漏れの少なさを優先）
-            const MIN_BLANK_SEC = 1.0;        // 1秒未満の無音は無視
-            const BRIDGE_GAP_SEC = 0.15;      // ごく短いノイズ混入は無音区間として橋渡し
+            const SILENCE_THRESHOLD = 0.015;  // 振幅しきい値（値を下げるほど、より静かな部分しか無音と判定しなくなる＝甘くなる）
+            const MIN_BLANK_SEC = 1.3;        // これより短い無音は無視（値を上げるほど検出は控えめになる）
+            const BRIDGE_GAP_SEC = 0.2;       // ごく短いノイズ混入は無音区間として橋渡し
             const windowSize = Math.max(1, Math.round(sr * WINDOW_SEC));
 
             const rawIntervals = [];
@@ -569,7 +658,14 @@
             if (myToken !== blankScanToken) return;
 
             blankIntervals = merged.filter(iv => (iv.end - iv.start) >= MIN_BLANK_SEC);
+            blankLocalDone = true;
             updateBlankUI('done');
+
+            // 他端末（Mac⇔Android）でも使い回せるよう、検出結果を同期サーバーへ保存
+            syncPost({
+                file: file.name,
+                blanks: { intervals: blankIntervals, updatedAt: Date.now() }
+            });
         } catch (err) {
             console.log('ブランク検出エラー', err);
             if (myToken === blankScanToken) updateBlankUI('error');
@@ -602,8 +698,17 @@
         resumeStatus.textContent = ""; 
         lyricsOverlay.classList.remove('active'); 
 
-        // ブランク（無音）検出を非同期でバックグラウンド実行（再生を妨げない）
-        scanForBlanks(file);
+        // このファイル読み込みセッションの識別子（別ファイルへの切り替え時に古い非同期処理を無視するため）
+        const fileToken = ++blankScanToken;
+
+        // ブランク（無音）検出は、durationが判明してから（loadedmetadata時に）開始する。
+        // 事前にファイルの長さを確認し、長時間ファイルではモバイルのクラッシュ回避のためスキップする。
+        pendingScanFile = file;
+        updateBlankUI('idle');
+
+        // Macの同期サーバーに、レジューム位置・ブランク検出結果のキャッシュがないか確認
+        // （GitHub Pages利用時やMacが同じWi-Fiにいない場合は静かに失敗し、通常のローカル保存にフォールバックする）
+        handleRemoteSync(file.name, fileToken);
 
         jsmediatags.read(file, {
             onSuccess: function(tag) {
@@ -695,11 +800,36 @@
 
         updateTimeDisplay(0, duration);
 
-        const savedTime = localStorage.getItem(`resume_${currentFileName}`);
-        if (savedTime) {
-            audioPlayer.currentTime = parseFloat(savedTime);
-            resumeStatus.textContent = `前回位置から再開`;
-            setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+        // ブランク（無音）検出の開始判定：durationが判明したのでここで長さをチェックする
+        if (pendingScanFile) {
+            const scanFile = pendingScanFile;
+            const scanToken = blankScanToken;
+            pendingScanFile = null;
+
+            if (isFinite(duration) && duration > 0 && duration <= MAX_SCAN_DURATION_SEC) {
+                // 再生を妨げないよう非同期でバックグラウンド実行
+                scanForBlanks(scanFile, scanToken);
+            } else if (isFinite(duration) && duration > 0) {
+                // 長時間ファイルはメモリ負荷が大きく、特にAndroidでクラッシュしうるためスキップ
+                console.log(`ブランク検出スキップ（${Math.round(duration/60)}分、上限${MAX_SCAN_DURATION_SEC/60}分）`);
+                updateBlankUI('toolong');
+            }
+            // durationが取得できない場合は何もしない（idleのまま。次にscanForBlanksを呼ぶ機会があれば実行される）
+        }
+
+        const rawSaved = localStorage.getItem(`resume_${currentFileName}`);
+        if (rawSaved) {
+            let record;
+            try {
+                record = JSON.parse(rawSaved);
+            } catch (e) {
+                record = { position: parseFloat(rawSaved), updatedAt: 0 }; // 旧形式（数値のみ）との互換
+            }
+            if (record && record.position > 0) {
+                audioPlayer.currentTime = record.position;
+                resumeStatus.textContent = `前回位置から再開`;
+                setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+            }
         }
 
         lastSavedTime = audioPlayer.currentTime;
@@ -716,8 +846,7 @@
 
         // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する
         if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
-            localStorage.setItem(`resume_${currentFileName}`, current);
-            lastSavedTime = current;
+            saveResumePosition(current);
         }
     });
 
@@ -750,16 +879,16 @@
     audioPlayer.addEventListener('pause', () => {
         playBtn.innerHTML = svgPlay;
         playBtn.classList.remove('playing');
-        if (currentFileName && audioPlayer.currentTime > 0) {
-            localStorage.setItem(`resume_${currentFileName}`, audioPlayer.currentTime);
-            lastSavedTime = audioPlayer.currentTime;
-        }
+        saveResumePosition(audioPlayer.currentTime);
     });
 
     audioPlayer.addEventListener('ended', () => {
         playBtn.innerHTML = svgPlay;
         playBtn.classList.remove('playing');
-        if (currentFileName) localStorage.removeItem(`resume_${currentFileName}`);
+        if (currentFileName) {
+            localStorage.removeItem(`resume_${currentFileName}`);
+            syncPost({ file: currentFileName, resume: { position: 0, updatedAt: Date.now() } });
+        }
     });
 
     hpBtn.addEventListener('click', () => {
