@@ -223,20 +223,24 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 8px;
+            gap: 14px;
             margin-top: 10px;
             font-size: 13px;
             color: #aaa;
         }
         .blank-row .icon-btn svg {
-            width: 22px;
-            height: 22px;
+            width: 20px;
+            height: 20px;
         }
-        .blank-skip-btn.disabled {
+        #blank-status {
+            min-width: 190px;
+            text-align: center;
+        }
+        .blank-nav-btn.disabled {
             opacity: 0.3;
             cursor: default;
         }
-        .blank-skip-btn.disabled:hover { transform: scale(1); }
+        .blank-nav-btn.disabled:hover { transform: scale(1); }
         #blank-status.ready { color: #2ecc71; }
 
         /* HPボタン */
@@ -359,12 +363,17 @@
     </div>
 
     <div class="blank-row">
-        <div class="icon-btn blank-skip-btn disabled" id="blank-skip-btn" title="次のブランク（無音）へスキップ">
-            <svg viewBox="0 0 24 24">
+        <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
             </svg>
         </div>
         <span id="blank-status">ブランク検出: 待機中</span>
+        <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
+            <svg viewBox="0 0 24 24">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
     </div>
 
     <div class="sleep-row">
@@ -402,7 +411,8 @@
     const forwardBtn = document.getElementById('forward-btn');
     const sleepBtn = document.getElementById('sleep-btn');
     const sleepStatus = document.getElementById('sleep-status');
-    const blankSkipBtn = document.getElementById('blank-skip-btn');
+    const blankPrevBtn = document.getElementById('blank-prev-btn');
+    const blankNextBtn = document.getElementById('blank-next-btn');
     const blankStatus = document.getElementById('blank-status');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
@@ -559,33 +569,58 @@
     // ----------------------------------------------------
     // ブランク（無音）検出：ファイル読込み時に一度だけ低サンプルレートで解析
     // ----------------------------------------------------
+    let blankUIState = 'idle';
+
     function updateBlankUI(state) {
-        // state: 'idle' | 'scanning' | 'done' | 'error' | 'unsupported'
+        // state: 'idle' | 'scanning' | 'done' | 'error' | 'unsupported' | 'toolong'
+        blankUIState = state;
         blankStatus.classList.remove('ready');
+
         if (state === 'idle') {
             blankStatus.textContent = 'ブランク検出: 待機中';
-            blankSkipBtn.classList.add('disabled');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
         } else if (state === 'scanning') {
             blankStatus.textContent = 'ブランク検出: 解析中…';
-            blankSkipBtn.classList.add('disabled');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
         } else if (state === 'done') {
-            blankStatus.textContent = `ブランク検出: ${blankIntervals.length}件`;
             blankStatus.classList.add('ready');
-            if (blankIntervals.length > 0) {
-                blankSkipBtn.classList.remove('disabled');
-            } else {
-                blankSkipBtn.classList.add('disabled');
-            }
+            refreshBlankNav();
         } else if (state === 'unsupported') {
             blankStatus.textContent = 'ブランク検出: 非対応ブラウザ';
-            blankSkipBtn.classList.add('disabled');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
         } else if (state === 'toolong') {
             blankStatus.textContent = 'ブランク検出: 長時間のため未対応（再生には影響ありません）';
-            blankSkipBtn.classList.add('disabled');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
         } else {
             blankStatus.textContent = 'ブランク検出: 失敗';
-            blankSkipBtn.classList.add('disabled');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
         }
+    }
+
+    // 検出済み状態のときだけ、現在の再生位置に応じて「I◀ ブランク検出（n/合計） ▶I」の表示を更新する
+    function refreshBlankNav() {
+        if (blankUIState !== 'done') return;
+
+        const total = blankIntervals.length;
+        if (total === 0) {
+            blankStatus.textContent = 'ブランク検出: 0件';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+            return;
+        }
+
+        const cur = audioPlayer.currentTime || 0;
+        const passed = blankIntervals.filter(iv => iv.end <= cur + 0.05).length;
+        const displayIndex = Math.min(passed + 1, total);
+
+        blankStatus.textContent = `ブランク検出（${displayIndex}/${total}）`;
+        blankPrevBtn.classList.toggle('disabled', passed === 0);
+        blankNextBtn.classList.toggle('disabled', passed >= total);
     }
 
     async function scanForBlanks(file, myToken) {
@@ -681,11 +716,30 @@
             const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : next.end;
             audioPlayer.currentTime = Math.min(next.end, dur);
         }
+        refreshBlankNav();
     }
 
-    blankSkipBtn.addEventListener('click', () => {
-        if (blankSkipBtn.classList.contains('disabled')) return;
+    function jumpToPrevBlank() {
+        if (!blankIntervals.length || !audioPlayer.src) return;
+        const cur = audioPlayer.currentTime;
+        // 現在位置より前にある、直近で通過した無音区間の「終わり」へ戻る
+        let prev = null;
+        for (const iv of blankIntervals) {
+            if (iv.end < cur - 0.5) prev = iv;
+            else break;
+        }
+        audioPlayer.currentTime = prev ? prev.end : 0;
+        refreshBlankNav();
+    }
+
+    blankNextBtn.addEventListener('click', () => {
+        if (blankNextBtn.classList.contains('disabled')) return;
         jumpToNextBlank();
+    });
+
+    blankPrevBtn.addEventListener('click', () => {
+        if (blankPrevBtn.classList.contains('disabled')) return;
+        jumpToPrevBlank();
     });
 
     fileInput.addEventListener('change', function(e) {
@@ -843,6 +897,7 @@
         updateTimeDisplay(current, audioPlayer.duration);
         updateSeekBarVisual(current, audioPlayer.duration);
         seekBar.value = current;
+        refreshBlankNav();
 
         // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する
         if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
