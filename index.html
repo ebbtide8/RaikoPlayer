@@ -1,0 +1,699 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radiko PWA Player - Minimal UI</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#1f6aa5">
+
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        .player-card {
+            background-color: #2d2d2d;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            width: 450px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* メタデータ表示エリア */
+        .meta-container {
+            display: flex;
+            flex-direction: column;
+            background-color: #202020;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .cover-art {
+            width: 100%;
+            height: 200px;
+            background-color: #3a3a3a;
+            border-radius: 6px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 15px;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .cover-art:hover { opacity: 0.8; }
+        
+        .track-info { width: 100%; overflow: hidden; }
+        .track-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-album, .track-artist {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* レジューム・時間通知 */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 10px;
+            height: 18px;
+        }
+        .resume-status { color: #2ecc71; }
+        .time-display { color: #aaa; font-family: monospace; font-size: 14px; }
+        
+        /* シークバー（通常の1本） */
+        .seekbar-container {
+            margin-bottom: 20px;
+        }
+        .seek-bar {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 10px;
+            background: #444;
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            margin: 0;
+        }
+        .seek-bar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #1f6aa5;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .seek-bar::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        .seek-bar::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #1f6aa5;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        .seek-bar {
+            background: linear-gradient(to right, #1f6aa5 0%, #1f6aa5 var(--val, 0%), #444 var(--val, 0%), #444 100%);
+        }
+
+        /* 最下部コントロールバー */
+        .bottom-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 4px;
+            height: 60px;
+            position: relative;
+        }
+        
+        .icon-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover { transform: scale(1.1); }
+        .icon-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #ffffff;
+        }
+        input[type="file"] { display: none; }
+        
+        /* 中央の再生ボタン */
+        .play-btn {
+            width: 48px;
+            height: 48px;
+            background-color: #1f6aa5;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            flex-shrink: 0;
+        }
+        .play-btn:hover {
+            background-color: #144d77;
+            transform: scale(1.05);
+        }
+        .play-btn svg {
+            width: 22px;
+            height: 22px;
+            fill: #ffffff;
+            margin-left: 3px;
+        }
+        .play-btn.playing svg {
+            margin-left: 0;
+        }
+
+        /* 早送り・巻き戻しボタン（10秒／30秒） */
+        .skip-btn {
+            flex-direction: column;
+            gap: 2px;
+        }
+        .skip-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+        .skip-label {
+            font-size: 9px;
+            color: #ccc;
+            line-height: 1;
+            user-select: none;
+        }
+
+        /* スリープタイマー */
+        .sleep-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 14px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .sleep-row .icon-btn svg {
+            width: 22px;
+            height: 22px;
+        }
+        .icon-btn.active svg {
+            fill: #2ecc71;
+        }
+        #sleep-status.active {
+            color: #2ecc71;
+            font-family: monospace;
+        }
+
+        /* HPボタン */
+        .hp-btn {
+            opacity: 1;
+        }
+        .hp-btn.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+        .hp-btn.disabled:hover { transform: scale(1); }
+
+        /* 歌詞オーバーレイ */
+        .lyrics-overlay {
+            position: absolute;
+            bottom: -100%;
+            left: 0;
+            width: 100%;
+            height: 80%;
+            background-color: rgba(40, 40, 40, 0.95);
+            box-sizing: border-box;
+            padding: 25px;
+            border-top: 2px solid #1f6aa5;
+            transition: bottom 0.3s ease-in-out;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+        .lyrics-overlay.active { bottom: 0; }
+        .lyrics-header {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1f6aa5;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+        .lyrics-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 15px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            color: #eee;
+            padding-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="player-card">
+    
+    <div class="meta-container">
+        <div class="cover-art" id="cover-art" title="クリックで歌詞を表示">[No Cover]</div>
+        <div class="track-info">
+            <div class="track-title" id="track-title">-</div>
+            <div class="track-album" id="track-album">-</div>
+            <div class="track-artist" id="track-artist">-</div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div class="resume-status" id="resume-status"></div>
+        <div class="time-display" id="time-display">00:00 / 00:00</div>
+    </div>
+    
+    <div class="seekbar-container">
+        <input type="range" class="seek-bar" id="seek-bar" min="0" max="100" value="0" step="0.1">
+    </div>
+    
+    <div class="bottom-controls">
+        <label class="icon-btn" title="音声ファイルを選択">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+            <input type="file" id="audio-file" accept="audio/*">
+        </label>
+
+        <div class="icon-btn skip-btn" id="rewind30-btn" title="30秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
+        </div>
+
+        <div class="icon-btn skip-btn" id="rewind-btn" title="10秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
+        <div class="icon-btn play-btn" id="play-btn">
+            <svg viewBox="0 0 24 24" id="play-icon">
+                <path d="M8 5v14l11-7z"/>
+            </svg>
+        </div>
+
+        <div class="icon-btn skip-btn" id="forward-btn" title="10秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
+        <div class="icon-btn skip-btn" id="forward30-btn" title="30秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
+        </div>
+
+        <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
+            <svg viewBox="0 0 24 24">
+                <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="sleep-row">
+        <div class="icon-btn" id="sleep-btn" title="スリープタイマー（クリックで切替）">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
+            </svg>
+        </div>
+        <span id="sleep-status">スリープ OFF</span>
+    </div>
+
+    <audio id="audio-player" style="display: none;"></audio>
+
+    <div class="lyrics-overlay" id="lyrics-overlay">
+        <div class="lyrics-header" id="lyrics-close">
+            <span>【歌詞表示】</span>
+            <span>閉じる ✕</span>
+        </div>
+        <div class="lyrics-content" id="lyrics-content">歌詞情報がありません。</div>
+    </div>
+</div>
+
+<script>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW登録失敗', err));
+        });
+    }
+
+    const fileInput = document.getElementById('audio-file');
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const hpBtn = document.getElementById('hp-btn');
+    const rewindBtn = document.getElementById('rewind-btn');
+    const forwardBtn = document.getElementById('forward-btn');
+    const sleepBtn = document.getElementById('sleep-btn');
+    const sleepStatus = document.getElementById('sleep-status');
+    const timeDisplay = document.getElementById('time-display');
+    const seekBar = document.getElementById('seek-bar');
+    const rewind30Btn = document.getElementById('rewind30-btn');
+    const forward30Btn = document.getElementById('forward30-btn');
+    
+    const trackTitle = document.getElementById('track-title');
+    const trackAlbum = document.getElementById('track-album');
+    const trackArtist = document.getElementById('track-artist');
+    const coverArt = document.getElementById('cover-art');
+    const resumeStatus = document.getElementById('resume-status');
+    const lyricsOverlay = document.getElementById('lyrics-overlay');
+    const lyricsContent = document.getElementById('lyrics-content');
+    const lyricsClose = document.getElementById('lyrics-close');
+
+    let currentFileName = "";
+    let currentHpUrl = "";
+    let isDragging = false;
+    let wasPlayingBeforeDrag = false;
+    let lastSavedTime = 0;
+    const RESUME_SAVE_INTERVAL = 2; // 秒。厳密なレジューム精度は不要のため間引いて保存
+
+    const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+    const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+
+    function updateSeekBarVisual(current, duration) {
+        if (!duration || isNaN(duration)) return;
+        const percent = (current / duration) * 100;
+        seekBar.style.setProperty('--val', `${percent}%`);
+    }
+
+    seekBar.addEventListener('input', (e) => {
+        if (!isDragging) {
+            isDragging = true;
+            wasPlayingBeforeDrag = !audioPlayer.paused;
+        }
+        const val = parseFloat(e.target.value);
+        updateSeekBarVisual(val, audioPlayer.duration);
+        updateTimeDisplay(val, audioPlayer.duration);
+    });
+
+    seekBar.addEventListener('change', (e) => {
+        const val = parseFloat(e.target.value);
+        audioPlayer.currentTime = val;
+        isDragging = false;
+
+        if (wasPlayingBeforeDrag) {
+            audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
+        }
+    });
+
+    function formatTime(seconds) {
+        if (isNaN(seconds)) return "00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function updateTimeDisplay(current, total) {
+        timeDisplay.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+    }
+
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        currentFileName = file.name;
+        currentHpUrl = "";
+        hpBtn.classList.add('disabled');
+        resumeStatus.textContent = ""; 
+        lyricsOverlay.classList.remove('active'); 
+
+        jsmediatags.read(file, {
+            onSuccess: function(tag) {
+                const tags = tag.tags;
+                trackTitle.textContent = tags.title || file.name;
+                trackAlbum.textContent = tags.album || "-";
+                trackArtist.textContent = tags.artist || "-";
+
+                let loadedLyrics = tags.lyrics || (tags.unsynchronisedLyrics ? tags.unsynchronisedLyrics.text : "");
+                lyricsContent.textContent = loadedLyrics ? loadedLyrics : "歌詞情報が含まれていないか、読み込めませんでした。";
+
+                // ----------------------------------------------------
+                // 修正版: Commentタグを最優先とするURL抽出ロジック
+                // ----------------------------------------------------
+                let foundUrl = null;
+
+                // 1. 最優先: Commentタグを掘る
+                if (tags.comment) {
+                    if (typeof tags.comment === 'string') {
+                        foundUrl = tags.comment;
+                    } else if (typeof tags.comment === 'object' && tags.comment.text) {
+                        foundUrl = tags.comment.text;
+                    }
+                }
+
+                // 2. なければフォールバック1: TXXXタグ (HP)
+                if (!foundUrl && tags.TXXX) {
+                    const txxxArray = Array.isArray(tags.TXXX) ? tags.TXXX : [tags.TXXX];
+                    for (let t of txxxArray) {
+                        if (t.data && t.data.description && t.data.description.toUpperCase() === 'HP') {
+                            foundUrl = t.data.text;
+                            break;
+                        }
+                    }
+                }
+
+                // 3. なければフォールバック2: メタデータ全体の文字列からURLを自動走査
+                if (!foundUrl) {
+                    try {
+                        const tagsString = JSON.stringify(tags);
+                        const urlMatch = tagsString.match(/https?:\/\/[a-zA-Z0-9.\-_~:/?#[\]@!$&'()*+,;=%]+/);
+                        if (urlMatch) {
+                            foundUrl = urlMatch[0];
+                        }
+                    } catch(e) {}
+                }
+
+                // トリミングして有効なURLか検証
+                if (foundUrl) {
+                    foundUrl = foundUrl.trim();
+                    if (foundUrl.startsWith('http')) {
+                        currentHpUrl = foundUrl;
+                        hpBtn.classList.remove('disabled');
+                    }
+                }
+                // ----------------------------------------------------
+
+                if (tags.picture) {
+                    const { data, format } = tags.picture;
+                    let base64String = "";
+                    for (let i = 0; i < data.length; i++) {
+                        base64String += String.fromCharCode(data[i]);
+                    }
+                    coverArt.style.backgroundImage = `url(data:${format};base64,${btoa(base64String)})`;
+                    coverArt.textContent = "";
+                } else {
+                    coverArt.style.backgroundImage = "none";
+                    coverArt.textContent = "[No Cover] (クリックで歌詞)";
+                }
+            },
+            onError: function() {
+                trackTitle.textContent = file.name;
+                coverArt.style.backgroundImage = "none";
+                coverArt.textContent = "[No Cover]";
+                lyricsContent.textContent = "タグの読み込みエラー。";
+            }
+        });
+
+        audioPlayer.src = URL.createObjectURL(file);
+    });
+
+    audioPlayer.addEventListener('loadedmetadata', () => {
+        const duration = audioPlayer.duration;
+
+        seekBar.min = 0;
+        seekBar.max = isFinite(duration) ? duration : 0;
+        seekBar.value = 0;
+        seekBar.style.setProperty('--val', '0%');
+
+        updateTimeDisplay(0, duration);
+
+        const savedTime = localStorage.getItem(`resume_${currentFileName}`);
+        if (savedTime) {
+            audioPlayer.currentTime = parseFloat(savedTime);
+            resumeStatus.textContent = `前回位置から再開`;
+            setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+        }
+
+        lastSavedTime = audioPlayer.currentTime;
+        audioPlayer.play().catch(e => console.log("自動再生ブロック"));
+    });
+
+    audioPlayer.addEventListener('timeupdate', () => {
+        if (isDragging) return;
+
+        const current = audioPlayer.currentTime;
+        updateTimeDisplay(current, audioPlayer.duration);
+        updateSeekBarVisual(current, audioPlayer.duration);
+        seekBar.value = current;
+
+        // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する
+        if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
+            localStorage.setItem(`resume_${currentFileName}`, current);
+            lastSavedTime = current;
+        }
+    });
+
+    // ----------------------------------------------------
+    // らじるらじる等のVBRファイル迷子対策 (ストalled / waiting 監視)
+    // ----------------------------------------------------
+    audioPlayer.addEventListener('waiting', () => {
+        // シーク後などにデータが詰まったら、一瞬だけ再生位置をわずかに進めて強制リフレッシュをかける
+        if (!audioPlayer.paused && !isDragging) {
+            setTimeout(() => {
+                if (audioPlayer.readyState < 3) { // 充分なデータが溜まっていない場合
+                    audioPlayer.currentTime = audioPlayer.currentTime + 0.1;
+                }
+            }, 500);
+        }
+    });
+    // ----------------------------------------------------
+
+    playBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        if (audioPlayer.paused) audioPlayer.play();
+        else audioPlayer.pause();
+    });
+
+    audioPlayer.addEventListener('play', () => {
+        playBtn.innerHTML = svgPause;
+        playBtn.classList.add('playing');
+    });
+
+    audioPlayer.addEventListener('pause', () => {
+        playBtn.innerHTML = svgPlay;
+        playBtn.classList.remove('playing');
+        if (currentFileName && audioPlayer.currentTime > 0) {
+            localStorage.setItem(`resume_${currentFileName}`, audioPlayer.currentTime);
+            lastSavedTime = audioPlayer.currentTime;
+        }
+    });
+
+    audioPlayer.addEventListener('ended', () => {
+        playBtn.innerHTML = svgPlay;
+        playBtn.classList.remove('playing');
+        if (currentFileName) localStorage.removeItem(`resume_${currentFileName}`);
+    });
+
+    hpBtn.addEventListener('click', () => {
+        if (currentHpUrl && !hpBtn.classList.contains('disabled')) {
+            window.open(currentHpUrl, '_blank');
+        }
+    });
+
+    // ----------------------------------------------------
+    // 早送り・巻き戻し（10秒／30秒）
+    // ----------------------------------------------------
+    rewindBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+    });
+
+    forwardBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+    });
+
+    rewind30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
+    });
+
+    forward30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
+    });
+
+    // ----------------------------------------------------
+    // スリープタイマー（クリックでOFF→15→30→45→60→90分を循環）
+    // ----------------------------------------------------
+    const SLEEP_PRESETS = [0, 15, 30, 45, 60, 90]; // 分。0はOFF
+    let sleepIndex = 0;
+    let sleepTimeoutId = null;
+    let sleepIntervalId = null;
+    let sleepEndTime = null;
+
+    function clearSleepTimer() {
+        if (sleepTimeoutId) clearTimeout(sleepTimeoutId);
+        if (sleepIntervalId) clearInterval(sleepIntervalId);
+        sleepTimeoutId = null;
+        sleepIntervalId = null;
+        sleepEndTime = null;
+        sleepBtn.classList.remove('active');
+        sleepStatus.classList.remove('active');
+    }
+
+    function updateSleepDisplay() {
+        if (!sleepEndTime) return;
+        const remainMs = sleepEndTime - Date.now();
+        if (remainMs <= 0) {
+            sleepStatus.textContent = 'スリープ OFF';
+            return;
+        }
+        const totalSec = Math.ceil(remainMs / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        sleepStatus.textContent = `スリープ ${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function startSleepTimer(minutes) {
+        clearSleepTimer();
+        if (minutes <= 0) {
+            sleepStatus.textContent = 'スリープ OFF';
+            return;
+        }
+        sleepEndTime = Date.now() + minutes * 60 * 1000;
+        sleepBtn.classList.add('active');
+        sleepStatus.classList.add('active');
+        updateSleepDisplay();
+        sleepIntervalId = setInterval(updateSleepDisplay, 1000);
+        sleepTimeoutId = setTimeout(() => {
+            audioPlayer.pause();
+            sleepIndex = 0;
+            clearSleepTimer();
+            sleepStatus.textContent = 'スリープ OFF';
+        }, minutes * 60 * 1000);
+    }
+
+    sleepBtn.addEventListener('click', () => {
+        sleepIndex = (sleepIndex + 1) % SLEEP_PRESETS.length;
+        startSleepTimer(SLEEP_PRESETS[sleepIndex]);
+    });
+
+    coverArt.addEventListener('click', () => {
+        if (currentFileName) lyricsOverlay.classList.toggle('active');
+    });
+    lyricsClose.addEventListener('click', () => lyricsOverlay.classList.remove('active'));
+
+</script>
+</body>
+</html>
