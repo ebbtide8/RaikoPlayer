@@ -920,6 +920,17 @@
         setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
+    // ファイル名比較用の正規化
+    // ・全角/半角の表記ゆれをNFKCで吸収
+    // ・「〜」（波ダッシュ）はMac(U+301C)とWindows(U+FF5E)で異なる文字が使われがちなため、
+    //   見た目が同じ記号（〜・～・~・⁓）を同一視する
+    function normalizeFileNameForCompare(name) {
+        if (!name) return '';
+        return name
+            .normalize('NFKC')
+            .replace(/[\u301C\uFF5E\u2053\u007E]/g, '~');
+    }
+
     function importBlankJSON(file) {
         const reader = new FileReader();
         reader.onload = () => {
@@ -939,7 +950,7 @@
                 alert('先に音声ファイルを読み込んでください');
                 return;
             }
-            if (data.fileName && data.fileName !== currentFileName) {
+            if (data.fileName && normalizeFileNameForCompare(data.fileName) !== normalizeFileNameForCompare(currentFileName)) {
                 alert(`JSONが違います\n\n読込み中の音声: ${currentFileName}\nJSONの対象ファイル: ${data.fileName}`);
                 return;
             }
