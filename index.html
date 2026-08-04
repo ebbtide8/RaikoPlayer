@@ -303,6 +303,63 @@
             color: #eee;
             padding-right: 5px;
         }
+
+        /* ブランク検出の確認ダイアログ */
+        .confirm-overlay {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            align-items: center;
+            justify-content: center;
+            z-index: 100;
+            padding: 20px;
+            box-sizing: border-box;
+        }
+        .confirm-overlay.active {
+            display: flex;
+        }
+        .confirm-box {
+            background-color: #2a2a2a;
+            border: 1px solid #444;
+            border-radius: 12px;
+            padding: 24px 20px;
+            max-width: 320px;
+            width: 100%;
+            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+        }
+        .confirm-message {
+            color: #eee;
+            font-size: 15px;
+            line-height: 1.6;
+            margin-bottom: 20px;
+            text-align: center;
+        }
+        .confirm-buttons {
+            display: flex;
+            gap: 10px;
+        }
+        .confirm-btn {
+            flex: 1;
+            padding: 12px 0;
+            border-radius: 8px;
+            border: none;
+            font-size: 15px;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .confirm-btn:hover { opacity: 0.85; }
+        .confirm-no {
+            background-color: #444;
+            color: #eee;
+        }
+        .confirm-yes {
+            background-color: #1f6aa5;
+            color: #fff;
+        }
     </style>
 </head>
 <body>
@@ -408,6 +465,16 @@
         </div>
         <div class="lyrics-content" id="lyrics-content">歌詞情報がありません。</div>
     </div>
+
+    <div class="confirm-overlay" id="blank-confirm-overlay">
+        <div class="confirm-box">
+            <div class="confirm-message" id="blank-confirm-message">長時間のファイルです。無音検出を試みますか？</div>
+            <div class="confirm-buttons">
+                <button class="confirm-btn confirm-no" id="blank-confirm-no">しない</button>
+                <button class="confirm-btn confirm-yes" id="blank-confirm-yes">する</button>
+            </div>
+        </div>
+    </div>
 </div>
 
 <script>
@@ -428,6 +495,10 @@
     const blankPrevBtn = document.getElementById('blank-prev-btn');
     const blankNextBtn = document.getElementById('blank-next-btn');
     const blankStatus = document.getElementById('blank-status');
+    const blankConfirmOverlay = document.getElementById('blank-confirm-overlay');
+    const blankConfirmMessage = document.getElementById('blank-confirm-message');
+    const blankConfirmYes = document.getElementById('blank-confirm-yes');
+    const blankConfirmNo = document.getElementById('blank-confirm-no');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -460,6 +531,11 @@
     // （Macは比較的メモリに余裕があり、失敗しても再生は止まらないため上限を長めに設定）
     const isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
     const MAX_SCAN_DURATION_SEC = isMobileUA ? 100 * 60 : 180 * 60; // モバイル:100分 / PC:180分
+
+    // 61分を超えるファイルは、自動判定に頼らずユーザーに確認する
+    // （90分程度のトーク番組でもAndroidでは不安定になる報告があるため、
+    //   端末や内容によらずユーザー自身が都度判断できるようにする）
+    const CONFIRM_SCAN_THRESHOLD_SEC = 61 * 60;
 
     let syncBackoffUntil = 0;     // Mac同期サーバーに繋がらない場合、しばらく再試行を控える（無駄な待ち時間を防ぐ）
 
@@ -585,13 +661,38 @@
     // ----------------------------------------------------
     let blankUIState = 'idle';
 
+    // 長時間ファイル向けの確認ダイアログ（「する」「しない」で選ばせる）
+    function askBlankScanConfirm(minutes) {
+        return new Promise((resolve) => {
+            blankConfirmMessage.textContent =
+                `このファイルは約${minutes}分あります。無音検出を試みますか？\n（長時間ファイルでは端末により不安定になる場合があります）`;
+            blankConfirmOverlay.classList.add('active');
+
+            function cleanup(result) {
+                blankConfirmOverlay.classList.remove('active');
+                blankConfirmYes.removeEventListener('click', onYes);
+                blankConfirmNo.removeEventListener('click', onNo);
+                resolve(result);
+            }
+            function onYes() { cleanup(true); }
+            function onNo() { cleanup(false); }
+
+            blankConfirmYes.addEventListener('click', onYes);
+            blankConfirmNo.addEventListener('click', onNo);
+        });
+    }
+
     function updateBlankUI(state) {
-        // state: 'idle' | 'scanning' | 'done' | 'error' | 'unsupported' | 'toolong'
+        // state: 'idle' | 'confirming' | 'scanning' | 'done' | 'error' | 'unsupported' | 'toolong' | 'skipped'
         blankUIState = state;
         blankStatus.classList.remove('ready');
 
         if (state === 'idle') {
             blankStatus.textContent = 'ブランク検出: 待機中';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+        } else if (state === 'confirming') {
+            blankStatus.textContent = 'ブランク検出: 確認待ち…';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         } else if (state === 'scanning') {
@@ -607,6 +708,10 @@
             blankNextBtn.classList.add('disabled');
         } else if (state === 'toolong') {
             blankStatus.textContent = 'ブランク検出: 長時間のため未対応（再生には影響ありません）';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+        } else if (state === 'skipped') {
+            blankStatus.textContent = 'ブランク検出: スキップしました（再生には影響ありません）';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         } else {
@@ -666,8 +771,8 @@
 
             const WINDOW_SEC = 0.05;          // 50ms窓でRMSを計算
             const SILENCE_THRESHOLD = 0.015;  // 振幅しきい値（値を下げるほど、より静かな部分しか無音と判定しなくなる＝甘くなる）
-            const MIN_BLANK_SEC = 1.3;        // これより短い無音は無視（値を上げるほど検出は控えめになる）
-            const BRIDGE_GAP_SEC = 0.2;       // ごく短いノイズ混入は無音区間として橋渡し
+            const MIN_BLANK_SEC = 1.5;        // これより短い無音は無視（値を上げるほど検出は控えめになる）
+            const BRIDGE_GAP_SEC = 0.25;      // ごく短いノイズ混入は無音区間として橋渡し
             const windowSize = Math.max(1, Math.round(sr * WINDOW_SEC));
 
             const rawIntervals = [];
@@ -874,13 +979,25 @@
             const scanToken = blankScanToken;
             pendingScanFile = null;
 
-            if (isFinite(duration) && duration > 0 && duration <= MAX_SCAN_DURATION_SEC) {
-                // 再生を妨げないよう非同期でバックグラウンド実行
-                scanForBlanks(scanFile, scanToken);
-            } else if (isFinite(duration) && duration > 0) {
-                // 長時間ファイルはメモリ負荷が大きく、特にAndroidでクラッシュしうるためスキップ
+            if (isFinite(duration) && duration > 0 && duration > MAX_SCAN_DURATION_SEC) {
+                // 絶対的な上限を超える場合は、確認すら行わずスキップ（クラッシュ回避を優先）
                 console.log(`ブランク検出スキップ（${Math.round(duration/60)}分、上限${MAX_SCAN_DURATION_SEC/60}分）`);
                 updateBlankUI('toolong');
+            } else if (isFinite(duration) && duration > CONFIRM_SCAN_THRESHOLD_SEC) {
+                // 61分を超える場合はユーザーに確認する（端末や内容によって不安定さが変わるため）
+                updateBlankUI('confirming');
+                const minutes = Math.round(duration / 60);
+                askBlankScanConfirm(minutes).then((proceed) => {
+                    if (scanToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
+                    if (proceed) {
+                        scanForBlanks(scanFile, scanToken);
+                    } else {
+                        updateBlankUI('skipped');
+                    }
+                });
+            } else if (isFinite(duration) && duration > 0) {
+                // 再生を妨げないよう非同期でバックグラウンド実行
+                scanForBlanks(scanFile, scanToken);
             }
             // durationが取得できない場合は何もしない（idleのまま。次にscanForBlanksを呼ぶ機会があれば実行される）
         }
