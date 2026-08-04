@@ -89,10 +89,10 @@
             justify-content: space-between;
             font-size: 12px;
             margin-bottom: 10px;
-            height: 18px;
+            height: 22px;
         }
         .resume-status { color: #2ecc71; }
-        .time-display { color: #aaa; font-family: monospace; font-size: 14px; }
+        .time-display { color: #aaa; font-family: monospace; font-size: 16px; }
         
         /* シークバー（通常の1本） */
         .seekbar-container {
@@ -136,8 +136,8 @@
             display: flex;
             align-items: center;
             justify-content: space-between;
-            padding: 0 4px;
-            height: 60px;
+            padding: 0 10px;
+            height: 78px;
             position: relative;
         }
         
@@ -159,8 +159,8 @@
         
         /* 中央の再生ボタン */
         .play-btn {
-            width: 48px;
-            height: 48px;
+            width: 56px;
+            height: 56px;
             background-color: #1f6aa5;
             border-radius: 50%;
             box-shadow: 0 4px 10px rgba(0,0,0,0.3);
@@ -171,8 +171,8 @@
             transform: scale(1.05);
         }
         .play-btn svg {
-            width: 22px;
-            height: 22px;
+            width: 26px;
+            height: 26px;
             fill: #ffffff;
             margin-left: 3px;
         }
@@ -183,33 +183,46 @@
         /* 早送り・巻き戻しボタン（10秒／30秒） */
         .skip-btn {
             flex-direction: column;
-            gap: 2px;
+            gap: 3px;
         }
         .skip-btn svg {
-            width: 22px;
-            height: 22px;
+            width: 32px;
+            height: 32px;
         }
         .skip-label {
-            font-size: 9px;
+            font-size: 11px;
             color: #ccc;
             line-height: 1;
             user-select: none;
         }
 
-        /* スリープタイマー */
-        .sleep-row {
+        /* ファイル読込み・スリープ・HPの行 */
+        .utility-row {
             display: flex;
             align-items: center;
-            justify-content: center;
-            gap: 8px;
+            justify-content: space-between;
+            padding: 0 4px;
+            height: 50px;
             margin-top: 14px;
+        }
+        .utility-row .icon-btn svg {
+            width: 30px;
+            height: 30px;
+        }
+        .utility-row .hp-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+        .sleep-combo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
             font-size: 13px;
             color: #aaa;
         }
-        .sleep-row .icon-btn svg {
-            width: 22px;
-            height: 22px;
-        }
+        .sleep-combo:hover { transform: scale(1.05); }
         .icon-btn.active svg {
             fill: #2ecc71;
         }
@@ -224,13 +237,14 @@
             align-items: center;
             justify-content: center;
             gap: 14px;
-            margin-top: 10px;
+            margin-top: 4px;
+            margin-bottom: 14px;
             font-size: 13px;
             color: #aaa;
         }
         .blank-row .icon-btn svg {
-            width: 20px;
-            height: 20px;
+            width: 30px;
+            height: 30px;
         }
         #blank-status {
             min-width: 190px;
@@ -312,15 +326,22 @@
     <div class="seekbar-container">
         <input type="range" class="seek-bar" id="seek-bar" min="0" max="100" value="0" step="0.1">
     </div>
-    
-    <div class="bottom-controls">
-        <label class="icon-btn" title="音声ファイルを選択">
-            <svg viewBox="0 0 24 24">
-                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
-            </svg>
-            <input type="file" id="audio-file" accept="audio/*">
-        </label>
 
+    <div class="blank-row">
+        <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
+        <span id="blank-status">ブランク検出: 待機中</span>
+        <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
+            <svg viewBox="0 0 24 24">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="bottom-controls">
         <div class="icon-btn skip-btn" id="rewind30-btn" title="30秒巻き戻し">
             <svg viewBox="0 0 24 24">
                 <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
@@ -354,35 +375,28 @@
             </svg>
             <span class="skip-label">30</span>
         </div>
+    </div>
+
+    <div class="utility-row">
+        <label class="icon-btn" title="音声ファイルを選択">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+            <input type="file" id="audio-file" accept="audio/*">
+        </label>
+
+        <div class="icon-btn sleep-combo" id="sleep-btn" title="スリープタイマー（クリックで切替）">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
+            </svg>
+            <span id="sleep-status">スリープ OFF</span>
+        </div>
 
         <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
             <svg viewBox="0 0 24 24">
                 <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
             </svg>
         </div>
-    </div>
-
-    <div class="blank-row">
-        <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
-            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-            </svg>
-        </div>
-        <span id="blank-status">ブランク検出: 待機中</span>
-        <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
-            <svg viewBox="0 0 24 24">
-                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
-            </svg>
-        </div>
-    </div>
-
-    <div class="sleep-row">
-        <div class="icon-btn" id="sleep-btn" title="スリープタイマー（クリックで切替）">
-            <svg viewBox="0 0 24 24">
-                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
-            </svg>
-        </div>
-        <span id="sleep-status">スリープ OFF</span>
     </div>
 
     <audio id="audio-player" style="display: none;"></audio>
