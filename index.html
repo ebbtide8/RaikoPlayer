@@ -979,10 +979,134 @@
         reader.readAsText(file);
     }
 
+    // ----------------------------------------------------
+    // _JSONフォルダからの自動読み込み（File System Access API）
+    // 対応ブラウザ（Chrome系）でのみ動作。非対応の場合は従来の手動選択にフォールバックする。
+    // ----------------------------------------------------
+    const FS_ACCESS_SUPPORTED = typeof window.showDirectoryPicker === 'function';
+    let cachedAudioDirHandle = null;
+
+    function idbOpen() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('radiko-pwa-fs', 1);
+            req.onupgradeneeded = () => {
+                if (!req.result.objectStoreNames.contains('handles')) {
+                    req.result.createObjectStore('handles');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function idbGet(key) {
+        try {
+            const db = await idbOpen();
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readonly');
+                const req = tx.objectStore('handles').get(key);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function idbSet(key, value) {
+        try {
+            const db = await idbOpen();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').put(value, key);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch (e) {
+            // 保存に失敗しても致命的ではないため無視（次回また選択を求めるだけ）
+        }
+    }
+
+    async function verifyDirPermission(handle) {
+        const opts = { mode: 'read' };
+        try {
+            if ((await handle.queryPermission(opts)) === 'granted') return true;
+            if ((await handle.requestPermission(opts)) === 'granted') return true;
+        } catch (e) {
+            // no-op
+        }
+        return false;
+    }
+
+    // 音声ファイルが入っている親フォルダのハンドルを取得する。
+    // 記憶済みならそれを検証して再利用し、無ければユーザーに選択してもらう（初回のみ）。
+    async function getAudioDirHandle() {
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle))) {
+            return cachedAudioDirHandle;
+        }
+
+        const stored = await idbGet('audioDirHandle');
+        if (stored && (await verifyDirPermission(stored))) {
+            cachedAudioDirHandle = stored;
+            return stored;
+        }
+
+        try {
+            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
+            cachedAudioDirHandle = handle;
+            idbSet('audioDirHandle', handle);
+            return handle;
+        } catch (e) {
+            return null; // ユーザーがキャンセルした場合など
+        }
+    }
+
+    // 親フォルダ内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
+    // 見つかって読み込めた場合は true、見つからない・非対応の場合は false を返す。
+    async function tryAutoLoadBlankJSON() {
+        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
+
+        const dirHandle = await getAudioDirHandle();
+        if (!dirHandle) return false;
+
+        let jsonDirHandle;
+        try {
+            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON');
+        } catch (e) {
+            return false; // _JSONフォルダが存在しない
+        }
+
+        const audioBase = currentFileName.replace(/\.[^/.]+$/, '');
+        const candidates = [
+            normalizeFileNameForCompare(`${audioBase}.blanks.json`),
+            normalizeFileNameForCompare(`${currentFileName}.json`),
+            normalizeFileNameForCompare(`${audioBase}.json`)
+        ];
+
+        try {
+            for await (const [name, handle] of jsonDirHandle.entries()) {
+                if (handle.kind !== 'file') continue;
+                if (candidates.includes(normalizeFileNameForCompare(name))) {
+                    const file = await handle.getFile();
+                    importBlankJSON(file);
+                    return true;
+                }
+            }
+        } catch (e) {
+            return false;
+        }
+        return false;
+    }
+
     blankExportBtn.addEventListener('click', exportBlankJSON);
 
-    blankImportBtn.addEventListener('click', () => {
+    blankImportBtn.addEventListener('click', async () => {
         if (blankImportBtn.classList.contains('disabled')) return;
+
+        const autoLoaded = await tryAutoLoadBlankJSON();
+        if (autoLoaded) return;
+
+        // 自動で見つからなかった場合・非対応ブラウザの場合は、従来通り手動選択
         blankJsonFileInput.value = ''; // 同じファイルを連続で選び直せるようにする
         blankJsonFileInput.click();
     });
