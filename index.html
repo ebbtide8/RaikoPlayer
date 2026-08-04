@@ -236,25 +236,31 @@
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 14px;
+            gap: 8px;
             margin-top: 4px;
             margin-bottom: 14px;
             font-size: 13px;
             color: #aaa;
         }
-        .blank-row .icon-btn svg {
+        .blank-row .blank-nav-btn svg {
             width: 30px;
             height: 30px;
         }
+        .blank-row .blank-io-btn svg {
+            width: 22px;
+            height: 22px;
+        }
         #blank-status {
-            min-width: 190px;
+            min-width: 170px;
             text-align: center;
         }
-        .blank-nav-btn.disabled {
+        .blank-nav-btn.disabled,
+        .blank-io-btn.disabled {
             opacity: 0.3;
             cursor: default;
         }
-        .blank-nav-btn.disabled:hover { transform: scale(1); }
+        .blank-nav-btn.disabled:hover,
+        .blank-io-btn.disabled:hover { transform: scale(1); }
         #blank-status.ready { color: #2ecc71; }
 
         /* HPボタン */
@@ -385,6 +391,11 @@
     </div>
 
     <div class="blank-row">
+        <div class="icon-btn blank-io-btn disabled" id="blank-import-btn" title="ブランク検出結果をJSONから読込み">
+            <svg viewBox="0 0 24 24">
+                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
+            </svg>
+        </div>
         <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
             <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
@@ -396,6 +407,12 @@
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
             </svg>
         </div>
+        <div class="icon-btn blank-io-btn disabled" id="blank-export-btn" title="ブランク検出結果をJSONへ書出し">
+            <svg viewBox="0 0 24 24">
+                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2z"/>
+            </svg>
+        </div>
+        <input type="file" id="blank-json-file" accept="application/json,.json" style="display:none;">
     </div>
 
     <div class="bottom-controls">
@@ -499,6 +516,9 @@
     const blankConfirmMessage = document.getElementById('blank-confirm-message');
     const blankConfirmYes = document.getElementById('blank-confirm-yes');
     const blankConfirmNo = document.getElementById('blank-confirm-no');
+    const blankImportBtn = document.getElementById('blank-import-btn');
+    const blankExportBtn = document.getElementById('blank-export-btn');
+    const blankJsonFileInput = document.getElementById('blank-json-file');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -719,6 +739,16 @@
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         }
+
+        updateBlankIOButtons();
+    }
+
+    // 読込み／書出しボタンの有効・無効を切り替える
+    // ・読込み: 音声ファイルが読み込まれていればいつでも可（結果を上書きするため）
+    // ・書出し: 有効な検出結果（1件以上）があるときのみ
+    function updateBlankIOButtons() {
+        blankImportBtn.classList.toggle('disabled', !currentFileName);
+        blankExportBtn.classList.toggle('disabled', !(blankUIState === 'done' && blankIntervals.length > 0));
     }
 
     // 検出済み状態のときだけ、現在の再生位置に応じて「I◀ ブランク検出（n/合計） ▶I」の表示を更新する
@@ -859,6 +889,96 @@
     blankPrevBtn.addEventListener('click', () => {
         if (blankPrevBtn.classList.contains('disabled')) return;
         jumpToPrevBlank();
+    });
+
+    // ----------------------------------------------------
+    // ブランク検出結果のJSON書出し／読込み
+    // （Mac/PCで検出した結果をJSONで保存し、Androidなどへ手動で転送して読み込む）
+    // ----------------------------------------------------
+    function exportBlankJSON() {
+        if (blankExportBtn.classList.contains('disabled')) return;
+        if (!blankIntervals.length || !currentFileName) return;
+
+        const payload = {
+            app: 'RadikoPWA-BlankDetector',
+            version: 1,
+            fileName: currentFileName,
+            duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
+            generatedAt: new Date().toISOString(),
+            intervals: blankIntervals
+        };
+
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        const baseName = currentFileName.replace(/\.[^/.]+$/, '');
+        a.href = url;
+        a.download = `${baseName}.blanks.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function importBlankJSON(file) {
+        const reader = new FileReader();
+        reader.onload = () => {
+            let data;
+            try {
+                data = JSON.parse(reader.result);
+            } catch (e) {
+                alert('JSONファイルの読み込みに失敗しました（形式が正しくありません）');
+                return;
+            }
+
+            if (!data || !Array.isArray(data.intervals)) {
+                alert('JSONファイルの読み込みに失敗しました（形式が正しくありません）');
+                return;
+            }
+            if (!currentFileName) {
+                alert('先に音声ファイルを読み込んでください');
+                return;
+            }
+            if (data.fileName && data.fileName !== currentFileName) {
+                alert(`JSONが違います\n\n読込み中の音声: ${currentFileName}\nJSONの対象ファイル: ${data.fileName}`);
+                return;
+            }
+
+            const intervals = data.intervals.filter(
+                iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start
+            );
+
+            // 進行中のスキャンや確認ダイアログがあれば無効化し、読み込んだ結果を確定させる
+            blankScanToken++;
+            blankConfirmOverlay.classList.remove('active');
+            pendingScanFile = null;
+            blankLocalDone = true;
+            blankIntervals = intervals;
+            updateBlankUI('done');
+
+            // 同期サーバーが利用可能な環境ではそちらにも反映しておく
+            syncPost({
+                file: currentFileName,
+                blanks: { intervals: blankIntervals, updatedAt: Date.now() }
+            });
+        };
+        reader.onerror = () => {
+            alert('JSONファイルの読み込みに失敗しました');
+        };
+        reader.readAsText(file);
+    }
+
+    blankExportBtn.addEventListener('click', exportBlankJSON);
+
+    blankImportBtn.addEventListener('click', () => {
+        if (blankImportBtn.classList.contains('disabled')) return;
+        blankJsonFileInput.value = ''; // 同じファイルを連続で選び直せるようにする
+        blankJsonFileInput.click();
+    });
+
+    blankJsonFileInput.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (file) importBlankJSON(file);
     });
 
     fileInput.addEventListener('change', function(e) {
