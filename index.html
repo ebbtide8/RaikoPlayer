@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.1</title>
+    <title>Radio Player PWA - 2.1.2</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -469,7 +469,7 @@
             <svg viewBox="0 0 24 24">
                 <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
             </svg>
-            <span id="sleep-status">スリープ OFF</span>
+            <span id="sleep-status">OFF</span>
         </div>
 
         <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
@@ -1037,25 +1037,42 @@
     async function verifyDirPermission(handle, allowPrompt) {
         const opts = { mode: 'read' };
         try {
-            if ((await handle.queryPermission(opts)) === 'granted') return true;
-            if (allowPrompt && (await handle.requestPermission(opts)) === 'granted') return true;
+            if (allowPrompt) {
+                // requestPermissionは既に許可済みならダイアログを出さず即座に'granted'を返すため、
+                // queryPermissionを経由せず直接呼ぶ。クリックからここまでの経由段数（await）が多いと、
+                // Androidでは「ユーザー操作起因」とみなされなくなりダイアログが出せなくなることがあるため、
+                // ジェスチャー起点の経路はできるだけ短くする。
+                return (await handle.requestPermission(opts)) === 'granted';
+            }
+            return (await handle.queryPermission(opts)) === 'granted';
         } catch (e) {
-            // no-op
+            return false;
         }
-        return false;
+    }
+
+    // 保存済みのフォルダハンドルをページ読み込み時（＝ユーザー操作を待たず）に先読みしておく。
+    // ボタン押下時にIndexedDBへの問い合わせを挟むと、その分だけクリックから
+    // showDirectoryPicker/requestPermission呼び出しまでの間隔が空いてしまい、
+    // Androidではその間にユーザー操作の有効期限が切れて呼び出せなくなることがある。
+    // 先読みしておけば、クリック時はメモリ上のハンドルを使うだけで済む。
+    let audioDirHandlePrefetch = null;
+    if (FS_ACCESS_SUPPORTED) {
+        audioDirHandlePrefetch = idbGet('audioDirHandle').then((stored) => {
+            if (stored) cachedAudioDirHandle = stored;
+        }).catch(() => {});
     }
 
     // 音声ファイルが入っている親フォルダのハンドルを取得する。
     // 記憶済みならそれを検証して再利用し、無ければユーザーに選択してもらう（初回のみ）。
     async function getAudioDirHandle() {
-        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, true))) {
-            return cachedAudioDirHandle;
+        // 先読みが完了していない場合のみ、ここで一度だけ待つ（通常は既に完了している）
+        if (audioDirHandlePrefetch) {
+            await audioDirHandlePrefetch;
+            audioDirHandlePrefetch = null;
         }
 
-        const stored = await idbGet('audioDirHandle');
-        if (stored && (await verifyDirPermission(stored, true))) {
-            cachedAudioDirHandle = stored;
-            return stored;
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, true))) {
+            return cachedAudioDirHandle;
         }
 
         try {
@@ -1070,6 +1087,10 @@
 
     // 既にアクセス許可済みのフォルダハンドルがあれば返す（新規のダイアログは一切出さない）
     async function getAudioDirHandleSilently() {
+        if (audioDirHandlePrefetch) {
+            await audioDirHandlePrefetch;
+            audioDirHandlePrefetch = null;
+        }
         if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, false))) {
             return cachedAudioDirHandle;
         }
@@ -1519,19 +1540,19 @@
         if (!sleepEndTime) return;
         const remainMs = sleepEndTime - Date.now();
         if (remainMs <= 0) {
-            sleepStatus.textContent = 'スリープ OFF';
+            sleepStatus.textContent = 'OFF';
             return;
         }
         const totalSec = Math.ceil(remainMs / 1000);
         const m = Math.floor(totalSec / 60);
         const s = totalSec % 60;
-        sleepStatus.textContent = `スリープ ${m}:${s.toString().padStart(2, '0')}`;
+        sleepStatus.textContent = `${m}:${s.toString().padStart(2, '0')}`;
     }
 
     function startSleepTimer(minutes) {
         clearSleepTimer();
         if (minutes <= 0) {
-            sleepStatus.textContent = 'スリープ OFF';
+            sleepStatus.textContent = 'OFF';
             return;
         }
         sleepEndTime = Date.now() + minutes * 60 * 1000;
@@ -1543,7 +1564,7 @@
             audioPlayer.pause();
             sleepIndex = 0;
             clearSleepTimer();
-            sleepStatus.textContent = 'スリープ OFF';
+            sleepStatus.textContent = 'OFF';
         }, minutes * 60 * 1000);
     }
 
