@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radiko PWA Player - Minimal UI</title>
+    <title>Radio Player PWA - 2.1.1</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -459,6 +459,12 @@
             <input type="file" id="audio-file" accept="audio/*">
         </label>
 
+        <div class="icon-btn" id="talk-enhance-btn" title="トーク強調（声の帯域を強調）">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zm12-16v16h4V4h-4z"/>
+            </svg>
+        </div>
+
         <div class="icon-btn sleep-combo" id="sleep-btn" title="スリープタイマー（クリックで切替）">
             <svg viewBox="0 0 24 24">
                 <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
@@ -507,6 +513,7 @@
     const hpBtn = document.getElementById('hp-btn');
     const rewindBtn = document.getElementById('rewind-btn');
     const forwardBtn = document.getElementById('forward-btn');
+    const talkEnhanceBtn = document.getElementById('talk-enhance-btn');
     const sleepBtn = document.getElementById('sleep-btn');
     const sleepStatus = document.getElementById('sleep-status');
     const blankPrevBtn = document.getElementById('blank-prev-btn');
@@ -1027,11 +1034,11 @@
         }
     }
 
-    async function verifyDirPermission(handle) {
+    async function verifyDirPermission(handle, allowPrompt) {
         const opts = { mode: 'read' };
         try {
             if ((await handle.queryPermission(opts)) === 'granted') return true;
-            if ((await handle.requestPermission(opts)) === 'granted') return true;
+            if (allowPrompt && (await handle.requestPermission(opts)) === 'granted') return true;
         } catch (e) {
             // no-op
         }
@@ -1041,12 +1048,12 @@
     // 音声ファイルが入っている親フォルダのハンドルを取得する。
     // 記憶済みならそれを検証して再利用し、無ければユーザーに選択してもらう（初回のみ）。
     async function getAudioDirHandle() {
-        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle))) {
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, true))) {
             return cachedAudioDirHandle;
         }
 
         const stored = await idbGet('audioDirHandle');
-        if (stored && (await verifyDirPermission(stored))) {
+        if (stored && (await verifyDirPermission(stored, true))) {
             cachedAudioDirHandle = stored;
             return stored;
         }
@@ -1061,13 +1068,23 @@
         }
     }
 
-    // 親フォルダ内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
-    // 見つかって読み込めた場合は true、見つからない・非対応の場合は false を返す。
-    async function tryAutoLoadBlankJSON() {
-        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
+    // 既にアクセス許可済みのフォルダハンドルがあれば返す（新規のダイアログは一切出さない）
+    async function getAudioDirHandleSilently() {
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, false))) {
+            return cachedAudioDirHandle;
+        }
+        const stored = await idbGet('audioDirHandle');
+        if (stored && (await verifyDirPermission(stored, false))) {
+            cachedAudioDirHandle = stored;
+            return stored;
+        }
+        return null;
+    }
 
-        const dirHandle = await getAudioDirHandle();
-        if (!dirHandle) return false;
+    // 指定されたフォルダハンドル内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
+    // 見つかって読み込めた場合は true、見つからない場合は false を返す。
+    async function searchAndLoadBlankJSONFromDir(dirHandle) {
+        if (!dirHandle || !currentFileName) return false;
 
         let jsonDirHandle;
         try {
@@ -1096,6 +1113,23 @@
             return false;
         }
         return false;
+    }
+
+    // 「読込み」ボタン用: フォルダ未許可なら選択ダイアログを出してでも探す
+    async function tryAutoLoadBlankJSON() {
+        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
+        const dirHandle = await getAudioDirHandle();
+        if (!dirHandle) return false;
+        return await searchAndLoadBlankJSONFromDir(dirHandle);
+    }
+
+    // ファイル読込み直後の自動チェック用: 既に許可済みのフォルダがある場合のみ静かに探す
+    // （まだフォルダへのアクセスを許可していない場合は、ここではダイアログを出さない）
+    async function trySilentAutoLoadBlankJSON() {
+        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
+        const dirHandle = await getAudioDirHandleSilently();
+        if (!dirHandle) return false;
+        return await searchAndLoadBlankJSONFromDir(dirHandle);
     }
 
     blankExportBtn.addEventListener('click', exportBlankJSON);
@@ -1234,27 +1268,34 @@
             const scanToken = blankScanToken;
             pendingScanFile = null;
 
-            if (isFinite(duration) && duration > 0 && duration > MAX_SCAN_DURATION_SEC) {
-                // 絶対的な上限を超える場合は、確認すら行わずスキップ（クラッシュ回避を優先）
-                console.log(`ブランク検出スキップ（${Math.round(duration/60)}分、上限${MAX_SCAN_DURATION_SEC/60}分）`);
-                updateBlankUI('toolong');
-            } else if (isFinite(duration) && duration > CONFIRM_SCAN_THRESHOLD_SEC) {
-                // 61分を超える場合はユーザーに確認する（端末や内容によって不安定さが変わるため）
-                updateBlankUI('confirming');
-                const minutes = Math.round(duration / 60);
-                askBlankScanConfirm(minutes).then((proceed) => {
+            (async () => {
+                // まず、既に許可済みの_JSONフォルダに検出済みの結果がないか静かに確認する
+                // （フォルダ未許可の場合はここではダイアログを出さず、そのまま下の分岐に進む）
+                const autoLoaded = await trySilentAutoLoadBlankJSON();
+                if (scanToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
+                if (autoLoaded) return; // 見つかって自動適用できたので、スキャンも確認も不要
+
+                if (isFinite(duration) && duration > 0 && duration > MAX_SCAN_DURATION_SEC) {
+                    // 絶対的な上限を超える場合は、確認すら行わずスキップ（クラッシュ回避を優先）
+                    console.log(`ブランク検出スキップ（${Math.round(duration/60)}分、上限${MAX_SCAN_DURATION_SEC/60}分）`);
+                    updateBlankUI('toolong');
+                } else if (isFinite(duration) && duration > CONFIRM_SCAN_THRESHOLD_SEC) {
+                    // 61分を超える場合はユーザーに確認する（端末や内容によって不安定さが変わるため）
+                    updateBlankUI('confirming');
+                    const minutes = Math.round(duration / 60);
+                    const proceed = await askBlankScanConfirm(minutes);
                     if (scanToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
                     if (proceed) {
                         scanForBlanks(scanFile, scanToken);
                     } else {
                         updateBlankUI('skipped');
                     }
-                });
-            } else if (isFinite(duration) && duration > 0) {
-                // 再生を妨げないよう非同期でバックグラウンド実行
-                scanForBlanks(scanFile, scanToken);
-            }
-            // durationが取得できない場合は何もしない（idleのまま。次にscanForBlanksを呼ぶ機会があれば実行される）
+                } else if (isFinite(duration) && duration > 0) {
+                    // 再生を妨げないよう非同期でバックグラウンド実行
+                    scanForBlanks(scanFile, scanToken);
+                }
+                // durationが取得できない場合は何もしない（idleのまま。次にscanForBlanksを呼ぶ機会があれば実行される）
+            })();
         }
 
         const rawSaved = localStorage.getItem(`resume_${currentFileName}`);
@@ -1332,10 +1373,102 @@
         }
     });
 
+    // Androidでは "intent://" スキームを使うことで、PWA内(Chrome)ではなく
+    // 端末のデフォルトブラウザ（Firefox/Safari等に設定していればそちら）で開かせる。
+    // Mac/PC等ではAndroidのIntentの仕組みが無いため、従来通りwindow.openで開く。
+    function openHomepage(url) {
+        if (!url) return;
+        const isAndroid = /Android/i.test(navigator.userAgent);
+
+        if (isAndroid) {
+            try {
+                const u = new URL(url);
+                const scheme = u.protocol.replace(':', ''); // "http" または "https"
+                const withoutScheme = url.slice(u.protocol.length + 2); // 先頭の "scheme://" を除いた部分
+                const intentUrl = `intent://${withoutScheme}#Intent;scheme=${scheme};action=android.intent.action.VIEW;end`;
+                window.location.href = intentUrl;
+                return;
+            } catch (e) {
+                // URL解析に失敗した場合は通常通り開く
+            }
+        }
+
+        window.open(url, '_blank', 'noopener');
+    }
+
     hpBtn.addEventListener('click', () => {
         if (currentHpUrl && !hpBtn.classList.contains('disabled')) {
-            window.open(currentHpUrl, '_blank');
+            openHomepage(currentHpUrl);
         }
+    });
+
+    // ----------------------------------------------------
+    // トーク強調（声の帯域を軽くブーストして聴き取りやすくする）
+    // BiquadFilterNodeはネイティブ実装で非常に軽量なため、常時接続しておき、
+    // オン/オフはパラメータ（gain/frequency）の切り替えだけで行う。
+    // ・低域ハイパス: 環境ノイズを緩やかにカット
+    // ・ピーキングEQ : 2kHz付近（声の明瞭度に効く帯域）を+5dBブースト
+    // ----------------------------------------------------
+    let talkAudioCtx = null;
+    let talkMediaSource = null;
+    let talkLowCutFilter = null;
+    let talkSpeechFilter = null;
+    let talkEnhanceOn = false;
+
+    const TALK_HIGHPASS_HZ = 150;   // オン時: これ以下の低音を緩やかにカット
+    const TALK_HIGHPASS_OFF_HZ = 20; // オフ時: 可聴域に影響しない下限に設定して事実上無効化
+    const TALK_PEAK_FREQ = 2000;    // 中心周波数 2kHz
+    const TALK_PEAK_Q = 1.0;
+    const TALK_PEAK_GAIN_ON = 5.0;  // +5dB ブースト
+    const TALK_PEAK_GAIN_OFF = 0.0;
+
+    function ensureTalkAudioGraph() {
+        if (talkAudioCtx) return true;
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return false;
+
+            talkAudioCtx = new AC();
+            talkMediaSource = talkAudioCtx.createMediaElementSource(audioPlayer);
+
+            talkLowCutFilter = talkAudioCtx.createBiquadFilter();
+            talkLowCutFilter.type = 'highpass';
+            talkLowCutFilter.frequency.value = TALK_HIGHPASS_OFF_HZ;
+
+            talkSpeechFilter = talkAudioCtx.createBiquadFilter();
+            talkSpeechFilter.type = 'peaking';
+            talkSpeechFilter.frequency.value = TALK_PEAK_FREQ;
+            talkSpeechFilter.Q.value = TALK_PEAK_Q;
+            talkSpeechFilter.gain.value = TALK_PEAK_GAIN_OFF;
+
+            talkMediaSource.connect(talkLowCutFilter);
+            talkLowCutFilter.connect(talkSpeechFilter);
+            talkSpeechFilter.connect(talkAudioCtx.destination);
+            return true;
+        } catch (e) {
+            console.log('トーク強調機能を初期化できませんでした', e);
+            talkAudioCtx = null;
+            return false;
+        }
+    }
+
+    function setTalkEnhance(on) {
+        if (!ensureTalkAudioGraph()) return; // 非対応環境では何もしない
+
+        if (talkAudioCtx.state === 'suspended') {
+            talkAudioCtx.resume().catch(() => {});
+        }
+
+        talkEnhanceOn = on;
+        const now = talkAudioCtx.currentTime;
+        talkLowCutFilter.frequency.setTargetAtTime(on ? TALK_HIGHPASS_HZ : TALK_HIGHPASS_OFF_HZ, now, 0.05);
+        talkSpeechFilter.gain.setTargetAtTime(on ? TALK_PEAK_GAIN_ON : TALK_PEAK_GAIN_OFF, now, 0.05);
+
+        talkEnhanceBtn.classList.toggle('active', talkEnhanceOn);
+    }
+
+    talkEnhanceBtn.addEventListener('click', () => {
+        setTalkEnhance(!talkEnhanceOn);
     });
 
     // ----------------------------------------------------
