@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.5</title>
+    <title>Radio Player PWA - 2.1.6</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -250,6 +250,8 @@
         #blank-status {
             min-width: 170px;
             text-align: center;
+            cursor: pointer;
+            user-select: none;
         }
         .blank-nav-btn.disabled {
             opacity: 0.3;
@@ -604,7 +606,7 @@
             blankNextBtn.classList.add('disabled');
         } else {
             // 'notfound'
-            blankStatus.textContent = 'JSON不検出';
+            blankStatus.textContent = 'JSON不検出（タップで許可/再検索）';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         }
@@ -778,10 +780,6 @@
         const opts = { mode: 'read' };
         try {
             if (allowPrompt) {
-                // requestPermissionは既に許可済みならダイアログを出さず即座に'granted'を返すため、
-                // queryPermissionを経由せず直接呼ぶ。クリックからここまでの経由段数（await）が多いと、
-                // Androidでは「ユーザー操作起因」とみなされなくなりダイアログが出せなくなることがあるため、
-                // ジェスチャー起点の経路はできるだけ短くする。
                 return (await handle.requestPermission(opts)) === 'granted';
             }
             return (await handle.queryPermission(opts)) === 'granted';
@@ -791,10 +789,6 @@
     }
 
     // 保存済みのフォルダハンドルをページ読み込み時（＝ユーザー操作を待たず）に先読みしておく。
-    // ボタン押下時にIndexedDBへの問い合わせを挟むと、その分だけクリックから
-    // showDirectoryPicker/requestPermission呼び出しまでの間隔が空いてしまい、
-    // Androidではその間にユーザー操作の有効期限が切れて呼び出せなくなることがある。
-    // 先読みしておけば、クリック時はメモリ上のハンドルを使うだけで済む。
     let audioDirHandlePrefetch = null;
     if (FS_ACCESS_SUPPORTED) {
         audioDirHandlePrefetch = idbGet('audioDirHandle').then((stored) => {
@@ -802,20 +796,36 @@
         }).catch(() => {});
     }
 
-    // 音声ファイルが入っている親フォルダのハンドルを取得する。
-    // 記憶済みならそれを検証して再利用し、無ければユーザーに選択してもらう（初回のみ）。
-    async function getAudioDirHandle() {
-        // 先読みが完了していない場合のみ、ここで一度だけ待つ（通常は既に完了している）
+    // 自動チェック用：既に許可済み（'granted'）のフォルダがあれば返す。
+    // queryPermissionのみを使い、requestPermission/showDirectoryPickerは一切呼ばない
+    // （ユーザー操作なしで呼ぶと、Androidだけでなく実際にはMacでも
+    //  「Must be handling a user gesture」エラーになることが確認されたため）。
+    async function getAudioDirHandleSilently() {
         if (audioDirHandlePrefetch) {
             await audioDirHandlePrefetch;
             audioDirHandlePrefetch = null;
         }
-
-        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, true))) {
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, false))) {
             console.log(`[_JSON自動探索] 許可済みフォルダを使用: "${cachedAudioDirHandle.name}"`);
             return cachedAudioDirHandle;
         }
+        return null;
+    }
 
+    // タップ（明示的なクリック）から呼ぶ用：showDirectoryPicker/requestPermissionを
+    // 一切のawaitを挟まず、ハンドラの最初の非同期処理として直接呼ぶ。
+    // これにより「ユーザー操作起因」であることをブラウザに正しく認識させる。
+    async function requestAudioDirHandleFromGesture() {
+        if (cachedAudioDirHandle) {
+            try {
+                if ((await cachedAudioDirHandle.requestPermission({ mode: 'read' })) === 'granted') {
+                    console.log(`[_JSON自動探索] 許可を再確認: "${cachedAudioDirHandle.name}"`);
+                    return cachedAudioDirHandle;
+                }
+            } catch (e) {
+                // フォールバックして下の新規選択に進む
+            }
+        }
         try {
             const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
             console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
@@ -824,7 +834,7 @@
             return handle;
         } catch (e) {
             console.log('[_JSON自動探索] フォルダ選択がキャンセルされました、または権限が得られませんでした', e);
-            return null; // ユーザーがキャンセルした場合など
+            return null;
         }
     }
 
@@ -845,27 +855,31 @@
         } catch (e) {
             // no-op
         }
-        console.log('[_JSON自動探索] フォルダのアクセス許可をリセットしました。次回ファイルを開いたときに再度選択できます。');
+        console.log('[_JSON自動探索] フォルダのアクセス許可をリセットしました。次回タップした時に再度選択できます。');
     }
 
-    // ブランクステータス表示を長押しすると、保存済みのフォルダ許可をリセットできる
-    // （誤ったフォルダを選んでしまった場合の救済手段。UIを増やさずに provide する）
-    (function setupBlankStatusLongPress() {
+    // ブランクステータス表示のタップ／長押しの使い分け：
+    // ・短いタップ: 「JSON不検出」等のときに、その場でフォルダへのアクセスを要求し、見つかれば適用する
+    // ・長押し: 保存済みのフォルダ許可をリセットする（誤ったフォルダを選んでしまった場合の救済）
+    (function setupBlankStatusInteractions() {
         let pressTimer = null;
+        let longPressFired = false;
         const LONG_PRESS_MS = 800;
 
         function start() {
+            longPressFired = false;
             pressTimer = setTimeout(async () => {
                 pressTimer = null;
-                const ok = confirm('保存されている_JSONフォルダへのアクセス許可をリセットしますか？\n次回、音声ファイルを開いたときに、フォルダの選択ダイアログが再度表示されます。');
+                longPressFired = true;
+                const ok = confirm('保存されている_JSONフォルダへのアクセス許可をリセットしますか？\n次回タップした時に、フォルダの選択ダイアログが再度表示されます。');
                 if (ok) {
                     await resetAudioDirHandle();
                     updateBlankUI('idle');
-                    blankStatus.textContent = 'フォルダ許可をリセットしました';
+                    blankStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
                 }
             }, LONG_PRESS_MS);
         }
-        function cancel() {
+        function cancelTimer() {
             if (pressTimer) {
                 clearTimeout(pressTimer);
                 pressTimer = null;
@@ -873,11 +887,30 @@
         }
 
         blankStatus.addEventListener('mousedown', start);
-        blankStatus.addEventListener('mouseup', cancel);
-        blankStatus.addEventListener('mouseleave', cancel);
+        blankStatus.addEventListener('mouseup', cancelTimer);
+        blankStatus.addEventListener('mouseleave', cancelTimer);
         blankStatus.addEventListener('touchstart', start, { passive: true });
-        blankStatus.addEventListener('touchend', cancel);
-        blankStatus.addEventListener('touchmove', cancel);
+        blankStatus.addEventListener('touchend', cancelTimer);
+        blankStatus.addEventListener('touchmove', cancelTimer);
+
+        blankStatus.addEventListener('click', async () => {
+            if (longPressFired) { longPressFired = false; return; } // 長押し操作直後のclickは無視
+            if (!currentFileName) return;
+            if (blankUIState !== 'notfound' && blankUIState !== 'unsupported') return;
+            if (!FS_ACCESS_SUPPORTED) return;
+
+            // ここが起点：一切のawaitを挟まずshowDirectoryPicker/requestPermissionを直接呼ぶ
+            const myToken = blankScanToken;
+            const dirHandle = await requestAudioDirHandleFromGesture();
+            if (myToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
+            if (!dirHandle) {
+                updateBlankUI('notfound');
+                return;
+            }
+            const found = await searchAndLoadBlankJSONFromDir(dirHandle);
+            if (myToken !== blankScanToken) return;
+            if (!found) updateBlankUI('notfound');
+        });
     })();
 
     // 指定されたフォルダハンドル内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
@@ -920,16 +953,14 @@
         return false;
     }
 
-    // 音声ファイル選択（＝ユーザー操作）の直後に呼ぶ。
-    // フォルダの許可がまだの場合、ここでダイアログを出す（要求は音声ファイル選択という
-    // ユーザー操作の直後にできるだけ近いタイミングで行うことで、許可ダイアログを
-    // 確実に呼び出せるようにする）。myFileName/myTokenで、別ファイルへの
-    // 切り替えが割り込んだ場合に結果を適用しないようにガードする。
+    // 音声ファイル選択直後に呼ぶ自動チェック（サイレント版）。
+    // 既に許可済みのフォルダがあれば探しに行き、無ければダイアログは出さず'notfound'系の
+    // 表示に落ち着く（そこからはブランクステータスのタップで許可できる）。
     function kickOffAutoLoadForFile(myFileName, myToken) {
         if (!FS_ACCESS_SUPPORTED) return Promise.resolve(false);
         return (async () => {
             try {
-                const dirHandle = await getAudioDirHandle();
+                const dirHandle = await getAudioDirHandleSilently();
                 if (myToken !== blankScanToken || currentFileName !== myFileName) return false;
                 if (!dirHandle) return false;
                 return await searchAndLoadBlankJSONFromDir(dirHandle);
