@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.4</title>
+    <title>Radio Player PWA - 2.1.5</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -812,18 +812,73 @@
         }
 
         if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, true))) {
+            console.log(`[_JSON自動探索] 許可済みフォルダを使用: "${cachedAudioDirHandle.name}"`);
             return cachedAudioDirHandle;
         }
 
         try {
             const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
+            console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
             cachedAudioDirHandle = handle;
             idbSet('audioDirHandle', handle);
             return handle;
         } catch (e) {
+            console.log('[_JSON自動探索] フォルダ選択がキャンセルされました、または権限が得られませんでした', e);
             return null; // ユーザーがキャンセルした場合など
         }
     }
+
+    // 保存されているフォルダへのアクセス許可をリセットする。
+    // 誤って別のフォルダ（音声ファイルの祖先/子孫フォルダなど）を選んでしまった場合、
+    // 次回のフォルダ選択ダイアログを再度出すために使う。
+    async function resetAudioDirHandle() {
+        cachedAudioDirHandle = null;
+        audioDirHandlePrefetch = null;
+        try {
+            const db = await idbOpen();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').delete('audioDirHandle');
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch (e) {
+            // no-op
+        }
+        console.log('[_JSON自動探索] フォルダのアクセス許可をリセットしました。次回ファイルを開いたときに再度選択できます。');
+    }
+
+    // ブランクステータス表示を長押しすると、保存済みのフォルダ許可をリセットできる
+    // （誤ったフォルダを選んでしまった場合の救済手段。UIを増やさずに provide する）
+    (function setupBlankStatusLongPress() {
+        let pressTimer = null;
+        const LONG_PRESS_MS = 800;
+
+        function start() {
+            pressTimer = setTimeout(async () => {
+                pressTimer = null;
+                const ok = confirm('保存されている_JSONフォルダへのアクセス許可をリセットしますか？\n次回、音声ファイルを開いたときに、フォルダの選択ダイアログが再度表示されます。');
+                if (ok) {
+                    await resetAudioDirHandle();
+                    updateBlankUI('idle');
+                    blankStatus.textContent = 'フォルダ許可をリセットしました';
+                }
+            }, LONG_PRESS_MS);
+        }
+        function cancel() {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        }
+
+        blankStatus.addEventListener('mousedown', start);
+        blankStatus.addEventListener('mouseup', cancel);
+        blankStatus.addEventListener('mouseleave', cancel);
+        blankStatus.addEventListener('touchstart', start, { passive: true });
+        blankStatus.addEventListener('touchend', cancel);
+        blankStatus.addEventListener('touchmove', cancel);
+    })();
 
     // 指定されたフォルダハンドル内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
     // 見つかって読み込めた場合は true、見つからない場合は false を返す。
@@ -834,6 +889,7 @@
         try {
             jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON');
         } catch (e) {
+            console.log(`[_JSON自動探索] "${dirHandle.name}" の直下に "_JSON" フォルダが見つかりません。選択したフォルダが正しいか確認してください。`);
             return false; // _JSONフォルダが存在しない
         }
 
@@ -845,15 +901,20 @@
         ];
 
         try {
+            const seenNames = [];
             for await (const [name, handle] of jsonDirHandle.entries()) {
                 if (handle.kind !== 'file') continue;
+                seenNames.push(name);
                 if (candidates.includes(normalizeFileNameForCompare(name))) {
                     const file = await handle.getFile();
+                    console.log(`[_JSON自動探索] 一致するJSONを発見: "${name}"`);
                     importBlankJSON(file);
                     return true;
                 }
             }
+            console.log(`[_JSON自動探索] "_JSON"フォルダ内に一致するファイルなし。探した名前: ${candidates.join(' / ')} 実際にあったファイル: ${seenNames.join(', ') || '(なし)'}`);
         } catch (e) {
+            console.log('[_JSON自動探索] "_JSON"フォルダの読み取りに失敗', e);
             return false;
         }
         return false;
