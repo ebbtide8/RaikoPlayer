@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.2</title>
+    <title>Radio Player PWA - 2.1.4</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -221,6 +221,7 @@
             transition: transform 0.2s;
             font-size: 13px;
             color: #aaa;
+            margin-left: 28px;
         }
         .sleep-combo:hover { transform: scale(1.05); }
         .icon-btn.active svg {
@@ -246,21 +247,15 @@
             width: 30px;
             height: 30px;
         }
-        .blank-row .blank-io-btn svg {
-            width: 22px;
-            height: 22px;
-        }
         #blank-status {
             min-width: 170px;
             text-align: center;
         }
-        .blank-nav-btn.disabled,
-        .blank-io-btn.disabled {
+        .blank-nav-btn.disabled {
             opacity: 0.3;
             cursor: default;
         }
-        .blank-nav-btn.disabled:hover,
-        .blank-io-btn.disabled:hover { transform: scale(1); }
+        .blank-nav-btn.disabled:hover { transform: scale(1); }
         #blank-status.ready { color: #2ecc71; }
 
         /* HPボタン */
@@ -309,63 +304,6 @@
             color: #eee;
             padding-right: 5px;
         }
-
-        /* ブランク検出の確認ダイアログ */
-        .confirm-overlay {
-            display: none;
-            position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background-color: rgba(0, 0, 0, 0.6);
-            align-items: center;
-            justify-content: center;
-            z-index: 100;
-            padding: 20px;
-            box-sizing: border-box;
-        }
-        .confirm-overlay.active {
-            display: flex;
-        }
-        .confirm-box {
-            background-color: #2a2a2a;
-            border: 1px solid #444;
-            border-radius: 12px;
-            padding: 24px 20px;
-            max-width: 320px;
-            width: 100%;
-            box-shadow: 0 8px 24px rgba(0,0,0,0.5);
-        }
-        .confirm-message {
-            color: #eee;
-            font-size: 15px;
-            line-height: 1.6;
-            margin-bottom: 20px;
-            text-align: center;
-        }
-        .confirm-buttons {
-            display: flex;
-            gap: 10px;
-        }
-        .confirm-btn {
-            flex: 1;
-            padding: 12px 0;
-            border-radius: 8px;
-            border: none;
-            font-size: 15px;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-        .confirm-btn:hover { opacity: 0.85; }
-        .confirm-no {
-            background-color: #444;
-            color: #eee;
-        }
-        .confirm-yes {
-            background-color: #1f6aa5;
-            color: #fff;
-        }
     </style>
 </head>
 <body>
@@ -391,28 +329,17 @@
     </div>
 
     <div class="blank-row">
-        <div class="icon-btn blank-io-btn disabled" id="blank-import-btn" title="ブランク検出結果をJSONから読込み">
-            <svg viewBox="0 0 24 24">
-                <path d="M9 16h6v-6h4l-7-7-7 7h4zm-4 2h14v2H5z"/>
-            </svg>
-        </div>
         <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
             <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
             </svg>
         </div>
-        <span id="blank-status">ブランク検出: 待機中</span>
+        <span id="blank-status">ブランク検出: 確認中…</span>
         <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
             <svg viewBox="0 0 24 24">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
             </svg>
         </div>
-        <div class="icon-btn blank-io-btn disabled" id="blank-export-btn" title="ブランク検出結果をJSONへ書出し">
-            <svg viewBox="0 0 24 24">
-                <path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2z"/>
-            </svg>
-        </div>
-        <input type="file" id="blank-json-file" accept="application/json,.json" style="display:none;">
     </div>
 
     <div class="bottom-controls">
@@ -488,16 +415,6 @@
         </div>
         <div class="lyrics-content" id="lyrics-content">歌詞情報がありません。</div>
     </div>
-
-    <div class="confirm-overlay" id="blank-confirm-overlay">
-        <div class="confirm-box">
-            <div class="confirm-message" id="blank-confirm-message">長時間のファイルです。無音検出を試みますか？</div>
-            <div class="confirm-buttons">
-                <button class="confirm-btn confirm-no" id="blank-confirm-no">しない</button>
-                <button class="confirm-btn confirm-yes" id="blank-confirm-yes">する</button>
-            </div>
-        </div>
-    </div>
 </div>
 
 <script>
@@ -519,13 +436,6 @@
     const blankPrevBtn = document.getElementById('blank-prev-btn');
     const blankNextBtn = document.getElementById('blank-next-btn');
     const blankStatus = document.getElementById('blank-status');
-    const blankConfirmOverlay = document.getElementById('blank-confirm-overlay');
-    const blankConfirmMessage = document.getElementById('blank-confirm-message');
-    const blankConfirmYes = document.getElementById('blank-confirm-yes');
-    const blankConfirmNo = document.getElementById('blank-confirm-no');
-    const blankImportBtn = document.getElementById('blank-import-btn');
-    const blankExportBtn = document.getElementById('blank-export-btn');
-    const blankJsonFileInput = document.getElementById('blank-json-file');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -547,22 +457,9 @@
     let lastSavedTime = 0;
     const RESUME_SAVE_INTERVAL = 2; // 秒。厳密なレジューム精度は不要のため間引いて保存
 
-    let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）
-    let blankScanToken = 0;       // ファイル切り替え時に古いスキャン結果を無視するためのトークン
-    let blankLocalDone = false;   // このファイルでローカルスキャンが完了したか
-    let pendingScanFile = null;   // loadedmetadataでdurationが分かってからスキャンを開始するための一時保持
-
-    // 長時間ファイルをフルデコードするとタブがメモリ不足になり、
-    // 特にAndroid Chromeではタブごとクラッシュして再生まで止まってしまう。
-    // durationが分かった時点で上限を超えていればスキャン自体を行わず、再生を優先する。
-    // （Macは比較的メモリに余裕があり、失敗しても再生は止まらないため上限を長めに設定）
-    const isMobileUA = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent);
-    const MAX_SCAN_DURATION_SEC = isMobileUA ? 100 * 60 : 180 * 60; // モバイル:100分 / PC:180分
-
-    // 61分を超えるファイルは、自動判定に頼らずユーザーに確認する
-    // （90分程度のトーク番組でもAndroidでは不安定になる報告があるため、
-    //   端末や内容によらずユーザー自身が都度判断できるようにする）
-    const CONFIRM_SCAN_THRESHOLD_SEC = 61 * 60;
+    let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）。_JSONのblanks.jsonから読み込まれる
+    let blankScanToken = 0;       // ファイル切り替え時に古い非同期処理の結果を無視するためのトークン
+    let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか（同期サーバーからの上書き防止に使用）
 
     let syncBackoffUntil = 0;     // Mac同期サーバーに繋がらない場合、しばらく再試行を控える（無駄な待ち時間を防ぐ）
 
@@ -684,78 +581,33 @@
     }
 
     // ----------------------------------------------------
-    // ブランク（無音）検出：ファイル読込み時に一度だけ低サンプルレートで解析
+    // ブランクスキップ機能：_JSONフォルダの .blanks.json を自動で探して読み込むだけ。
+    // アプリ内での無音検出（スキャン）は行わない。
     // ----------------------------------------------------
     let blankUIState = 'idle';
 
-    // 長時間ファイル向けの確認ダイアログ（「する」「しない」で選ばせる）
-    function askBlankScanConfirm(minutes) {
-        return new Promise((resolve) => {
-            blankConfirmMessage.textContent =
-                `このファイルは約${minutes}分あります。無音検出を試みますか？\n（長時間ファイルでは端末により不安定になる場合があります）`;
-            blankConfirmOverlay.classList.add('active');
-
-            function cleanup(result) {
-                blankConfirmOverlay.classList.remove('active');
-                blankConfirmYes.removeEventListener('click', onYes);
-                blankConfirmNo.removeEventListener('click', onNo);
-                resolve(result);
-            }
-            function onYes() { cleanup(true); }
-            function onNo() { cleanup(false); }
-
-            blankConfirmYes.addEventListener('click', onYes);
-            blankConfirmNo.addEventListener('click', onNo);
-        });
-    }
-
     function updateBlankUI(state) {
-        // state: 'idle' | 'confirming' | 'scanning' | 'done' | 'error' | 'unsupported' | 'toolong' | 'skipped'
+        // state: 'idle'（_JSON確認中） | 'done'（見つかった） | 'notfound'（見つからなかった） | 'unsupported'（非対応ブラウザ）
         blankUIState = state;
         blankStatus.classList.remove('ready');
 
         if (state === 'idle') {
-            blankStatus.textContent = 'ブランク検出: 待機中';
-            blankPrevBtn.classList.add('disabled');
-            blankNextBtn.classList.add('disabled');
-        } else if (state === 'confirming') {
-            blankStatus.textContent = 'ブランク検出: 確認待ち…';
-            blankPrevBtn.classList.add('disabled');
-            blankNextBtn.classList.add('disabled');
-        } else if (state === 'scanning') {
-            blankStatus.textContent = 'ブランク検出: 解析中…';
+            blankStatus.textContent = 'ブランク検出: 確認中…';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         } else if (state === 'done') {
             blankStatus.classList.add('ready');
             refreshBlankNav();
         } else if (state === 'unsupported') {
-            blankStatus.textContent = 'ブランク検出: 非対応ブラウザ';
-            blankPrevBtn.classList.add('disabled');
-            blankNextBtn.classList.add('disabled');
-        } else if (state === 'toolong') {
-            blankStatus.textContent = 'ブランク検出: 長時間のため未対応（再生には影響ありません）';
-            blankPrevBtn.classList.add('disabled');
-            blankNextBtn.classList.add('disabled');
-        } else if (state === 'skipped') {
-            blankStatus.textContent = 'ブランク検出: スキップしました（再生には影響ありません）';
+            blankStatus.textContent = 'JSON不検出（非対応ブラウザ）';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         } else {
-            blankStatus.textContent = 'ブランク検出: 失敗';
+            // 'notfound'
+            blankStatus.textContent = 'JSON不検出';
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
         }
-
-        updateBlankIOButtons();
-    }
-
-    // 読込み／書出しボタンの有効・無効を切り替える
-    // ・読込み: 音声ファイルが読み込まれていればいつでも可（結果を上書きするため）
-    // ・書出し: 有効な検出結果（1件以上）があるときのみ
-    function updateBlankIOButtons() {
-        blankImportBtn.classList.toggle('disabled', !currentFileName);
-        blankExportBtn.classList.toggle('disabled', !(blankUIState === 'done' && blankIntervals.length > 0));
     }
 
     // 検出済み状態のときだけ、現在の再生位置に応じて「I◀ ブランク検出（n/合計） ▶I」の表示を更新する
@@ -764,7 +616,8 @@
 
         const total = blankIntervals.length;
         if (total === 0) {
-            blankStatus.textContent = 'ブランク検出: 0件';
+            blankStatus.textContent = 'JSON不検出';
+            blankStatus.classList.remove('ready');
             blankPrevBtn.classList.add('disabled');
             blankNextBtn.classList.add('disabled');
             return;
@@ -777,90 +630,6 @@
         blankStatus.textContent = `ブランク検出（${displayIndex}/${total}）`;
         blankPrevBtn.classList.toggle('disabled', passed === 0);
         blankNextBtn.classList.toggle('disabled', passed >= total);
-    }
-
-    async function scanForBlanks(file, myToken) {
-        blankIntervals = [];
-        blankLocalDone = false;
-        updateBlankUI('idle');
-
-        const OfflineCtx = window.OfflineAudioContext || window.webkitOfflineAudioContext;
-        if (!OfflineCtx) {
-            updateBlankUI('unsupported');
-            return;
-        }
-
-        updateBlankUI('scanning');
-
-        try {
-            // 8kHz・モノラルまで落として解析することでメモリ消費を大幅に抑える
-            // （精度は多少粗くなるが、1秒以上の無音検出には十分）
-            const SAMPLE_RATE = 8000;
-            const arrayBuffer = await file.arrayBuffer();
-            const scanCtx = new OfflineCtx(1, 1, SAMPLE_RATE);
-            const audioBuffer = await scanCtx.decodeAudioData(arrayBuffer);
-
-            if (myToken !== blankScanToken) return; // 別ファイルに切り替わっていたら破棄
-
-            const data = audioBuffer.getChannelData(0);
-            const sr = audioBuffer.sampleRate;
-            const totalLen = data.length;
-
-            const WINDOW_SEC = 0.05;          // 50ms窓でRMSを計算
-            const SILENCE_THRESHOLD = 0.015;  // 振幅しきい値（値を下げるほど、より静かな部分しか無音と判定しなくなる＝甘くなる）
-            const MIN_BLANK_SEC = 1.5;        // これより短い無音は無視（値を上げるほど検出は控えめになる）
-            const BRIDGE_GAP_SEC = 0.25;      // ごく短いノイズ混入は無音区間として橋渡し
-            const windowSize = Math.max(1, Math.round(sr * WINDOW_SEC));
-
-            const rawIntervals = [];
-            let curStart = null;
-
-            for (let i = 0; i < totalLen; i += windowSize) {
-                const end = Math.min(i + windowSize, totalLen);
-                let sumSq = 0;
-                for (let j = i; j < end; j++) {
-                    sumSq += data[j] * data[j];
-                }
-                const rms = Math.sqrt(sumSq / (end - i));
-                const t = i / sr;
-
-                if (rms < SILENCE_THRESHOLD) {
-                    if (curStart === null) curStart = t;
-                } else if (curStart !== null) {
-                    rawIntervals.push({ start: curStart, end: t });
-                    curStart = null;
-                }
-            }
-            if (curStart !== null) {
-                rawIntervals.push({ start: curStart, end: totalLen / sr });
-            }
-
-            // 短い非無音ギャップを橋渡ししてから、規定秒数未満の無音を除外
-            const merged = [];
-            for (const iv of rawIntervals) {
-                const last = merged[merged.length - 1];
-                if (last && iv.start - last.end < BRIDGE_GAP_SEC) {
-                    last.end = iv.end;
-                } else {
-                    merged.push({ start: iv.start, end: iv.end });
-                }
-            }
-
-            if (myToken !== blankScanToken) return;
-
-            blankIntervals = merged.filter(iv => (iv.end - iv.start) >= MIN_BLANK_SEC);
-            blankLocalDone = true;
-            updateBlankUI('done');
-
-            // 他端末（Mac⇔Android）でも使い回せるよう、検出結果を同期サーバーへ保存
-            syncPost({
-                file: file.name,
-                blanks: { intervals: blankIntervals, updatedAt: Date.now() }
-            });
-        } catch (err) {
-            console.log('ブランク検出エラー', err);
-            if (myToken === blankScanToken) updateBlankUI('error');
-        }
     }
 
     function jumpToNextBlank() {
@@ -899,33 +668,8 @@
     });
 
     // ----------------------------------------------------
-    // ブランク検出結果のJSON書出し／読込み
-    // （Mac/PCで検出した結果をJSONで保存し、Androidなどへ手動で転送して読み込む）
+    // ブランクスキップ用JSONの読込み（_JSONフォルダから自動で見つけて適用する）
     // ----------------------------------------------------
-    function exportBlankJSON() {
-        if (blankExportBtn.classList.contains('disabled')) return;
-        if (!blankIntervals.length || !currentFileName) return;
-
-        const payload = {
-            app: 'RadikoPWA-BlankDetector',
-            version: 1,
-            fileName: currentFileName,
-            duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
-            generatedAt: new Date().toISOString(),
-            intervals: blankIntervals
-        };
-
-        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement('a');
-        const baseName = currentFileName.replace(/\.[^/.]+$/, '');
-        a.href = url;
-        a.download = `${baseName}.blanks.json`;
-        document.body.appendChild(a);
-        a.click();
-        document.body.removeChild(a);
-        setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
 
     // ファイル名比較用の正規化
     // ・全角/半角の表記ゆれをNFKCで吸収
@@ -945,20 +689,19 @@
             try {
                 data = JSON.parse(reader.result);
             } catch (e) {
-                alert('JSONファイルの読み込みに失敗しました（形式が正しくありません）');
+                console.log('JSON読み込み失敗（形式が正しくありません）', file.name);
                 return;
             }
 
             if (!data || !Array.isArray(data.intervals)) {
-                alert('JSONファイルの読み込みに失敗しました（形式が正しくありません）');
+                console.log('JSON読み込み失敗（形式が正しくありません）', file.name);
                 return;
             }
             if (!currentFileName) {
-                alert('先に音声ファイルを読み込んでください');
                 return;
             }
             if (data.fileName && normalizeFileNameForCompare(data.fileName) !== normalizeFileNameForCompare(currentFileName)) {
-                alert(`JSONが違います\n\n読込み中の音声: ${currentFileName}\nJSONの対象ファイル: ${data.fileName}`);
+                console.log(`JSONが違います: 読込み中の音声=${currentFileName} / JSON対象=${data.fileName}`);
                 return;
             }
 
@@ -966,10 +709,7 @@
                 iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start
             );
 
-            // 進行中のスキャンや確認ダイアログがあれば無効化し、読み込んだ結果を確定させる
             blankScanToken++;
-            blankConfirmOverlay.classList.remove('active');
-            pendingScanFile = null;
             blankLocalDone = true;
             blankIntervals = intervals;
             updateBlankUI('done');
@@ -981,7 +721,7 @@
             });
         };
         reader.onerror = () => {
-            alert('JSONファイルの読み込みに失敗しました');
+            console.log('JSONファイルの読み込みに失敗しました', file.name);
         };
         reader.readAsText(file);
     }
@@ -1085,23 +825,6 @@
         }
     }
 
-    // 既にアクセス許可済みのフォルダハンドルがあれば返す（新規のダイアログは一切出さない）
-    async function getAudioDirHandleSilently() {
-        if (audioDirHandlePrefetch) {
-            await audioDirHandlePrefetch;
-            audioDirHandlePrefetch = null;
-        }
-        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, false))) {
-            return cachedAudioDirHandle;
-        }
-        const stored = await idbGet('audioDirHandle');
-        if (stored && (await verifyDirPermission(stored, false))) {
-            cachedAudioDirHandle = stored;
-            return stored;
-        }
-        return null;
-    }
-
     // 指定されたフォルダハンドル内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
     // 見つかって読み込めた場合は true、見つからない場合は false を返す。
     async function searchAndLoadBlankJSONFromDir(dirHandle) {
@@ -1136,40 +859,24 @@
         return false;
     }
 
-    // 「読込み」ボタン用: フォルダ未許可なら選択ダイアログを出してでも探す
-    async function tryAutoLoadBlankJSON() {
-        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
-        const dirHandle = await getAudioDirHandle();
-        if (!dirHandle) return false;
-        return await searchAndLoadBlankJSONFromDir(dirHandle);
+    // 音声ファイル選択（＝ユーザー操作）の直後に呼ぶ。
+    // フォルダの許可がまだの場合、ここでダイアログを出す（要求は音声ファイル選択という
+    // ユーザー操作の直後にできるだけ近いタイミングで行うことで、許可ダイアログを
+    // 確実に呼び出せるようにする）。myFileName/myTokenで、別ファイルへの
+    // 切り替えが割り込んだ場合に結果を適用しないようにガードする。
+    function kickOffAutoLoadForFile(myFileName, myToken) {
+        if (!FS_ACCESS_SUPPORTED) return Promise.resolve(false);
+        return (async () => {
+            try {
+                const dirHandle = await getAudioDirHandle();
+                if (myToken !== blankScanToken || currentFileName !== myFileName) return false;
+                if (!dirHandle) return false;
+                return await searchAndLoadBlankJSONFromDir(dirHandle);
+            } catch (e) {
+                return false;
+            }
+        })();
     }
-
-    // ファイル読込み直後の自動チェック用: 既に許可済みのフォルダがある場合のみ静かに探す
-    // （まだフォルダへのアクセスを許可していない場合は、ここではダイアログを出さない）
-    async function trySilentAutoLoadBlankJSON() {
-        if (!FS_ACCESS_SUPPORTED || !currentFileName) return false;
-        const dirHandle = await getAudioDirHandleSilently();
-        if (!dirHandle) return false;
-        return await searchAndLoadBlankJSONFromDir(dirHandle);
-    }
-
-    blankExportBtn.addEventListener('click', exportBlankJSON);
-
-    blankImportBtn.addEventListener('click', async () => {
-        if (blankImportBtn.classList.contains('disabled')) return;
-
-        const autoLoaded = await tryAutoLoadBlankJSON();
-        if (autoLoaded) return;
-
-        // 自動で見つからなかった場合・非対応ブラウザの場合は、従来通り手動選択
-        blankJsonFileInput.value = ''; // 同じファイルを連続で選び直せるようにする
-        blankJsonFileInput.click();
-    });
-
-    blankJsonFileInput.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (file) importBlankJSON(file);
-    });
 
     fileInput.addEventListener('change', function(e) {
         const file = e.target.files[0];
@@ -1184,10 +891,18 @@
         // このファイル読み込みセッションの識別子（別ファイルへの切り替え時に古い非同期処理を無視するため）
         const fileToken = ++blankScanToken;
 
-        // ブランク（無音）検出は、durationが判明してから（loadedmetadata時に）開始する。
-        // 事前にファイルの長さを確認し、長時間ファイルではモバイルのクラッシュ回避のためスキップする。
-        pendingScanFile = file;
-        updateBlankUI('idle');
+        blankIntervals = [];
+        updateBlankUI('idle'); // "確認中…"
+
+        // _JSONフォルダの自動探索は、ファイル選択という「ユーザー操作」の直後、できるだけ早いタイミングで
+        // 開始する（フォルダの許可が必要な場合、ここで許可ダイアログが出ることがある）。
+        // 見つかった場合はkickOffAutoLoadForFile内部でimportBlankJSON→updateBlankUI('done')まで完了する。
+        kickOffAutoLoadForFile(file.name, fileToken).then((found) => {
+            if (fileToken !== blankScanToken) return; // 別ファイルへ切り替わっていたら無視
+            if (!found) {
+                updateBlankUI(FS_ACCESS_SUPPORTED ? 'notfound' : 'unsupported');
+            }
+        });
 
         // Macの同期サーバーに、レジューム位置・ブランク検出結果のキャッシュがないか確認
         // （GitHub Pages利用時やMacが同じWi-Fiにいない場合は静かに失敗し、通常のローカル保存にフォールバックする）
@@ -1282,42 +997,6 @@
         seekBar.style.setProperty('--val', '0%');
 
         updateTimeDisplay(0, duration);
-
-        // ブランク（無音）検出の開始判定：durationが判明したのでここで長さをチェックする
-        if (pendingScanFile) {
-            const scanFile = pendingScanFile;
-            const scanToken = blankScanToken;
-            pendingScanFile = null;
-
-            (async () => {
-                // まず、既に許可済みの_JSONフォルダに検出済みの結果がないか静かに確認する
-                // （フォルダ未許可の場合はここではダイアログを出さず、そのまま下の分岐に進む）
-                const autoLoaded = await trySilentAutoLoadBlankJSON();
-                if (scanToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
-                if (autoLoaded) return; // 見つかって自動適用できたので、スキャンも確認も不要
-
-                if (isFinite(duration) && duration > 0 && duration > MAX_SCAN_DURATION_SEC) {
-                    // 絶対的な上限を超える場合は、確認すら行わずスキップ（クラッシュ回避を優先）
-                    console.log(`ブランク検出スキップ（${Math.round(duration/60)}分、上限${MAX_SCAN_DURATION_SEC/60}分）`);
-                    updateBlankUI('toolong');
-                } else if (isFinite(duration) && duration > CONFIRM_SCAN_THRESHOLD_SEC) {
-                    // 61分を超える場合はユーザーに確認する（端末や内容によって不安定さが変わるため）
-                    updateBlankUI('confirming');
-                    const minutes = Math.round(duration / 60);
-                    const proceed = await askBlankScanConfirm(minutes);
-                    if (scanToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
-                    if (proceed) {
-                        scanForBlanks(scanFile, scanToken);
-                    } else {
-                        updateBlankUI('skipped');
-                    }
-                } else if (isFinite(duration) && duration > 0) {
-                    // 再生を妨げないよう非同期でバックグラウンド実行
-                    scanForBlanks(scanFile, scanToken);
-                }
-                // durationが取得できない場合は何もしない（idleのまま。次にscanForBlanksを呼ぶ機会があれば実行される）
-            })();
-        }
 
         const rawSaved = localStorage.getItem(`resume_${currentFileName}`);
         if (rawSaved) {
