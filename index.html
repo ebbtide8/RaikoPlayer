@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.6</title>
+    <title>Radio Player PWA - 2.1.7</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -232,6 +232,20 @@
             font-family: monospace;
         }
 
+        /* トーク強調（OFF/Low/High） */
+        #talk-enhance-btn.level-low svg {
+            fill: #2ecc71;
+        }
+        #talk-enhance-status.level-low {
+            color: #2ecc71;
+        }
+        #talk-enhance-btn.level-high svg {
+            fill: #ff9800;
+        }
+        #talk-enhance-status.level-high {
+            color: #ff9800;
+        }
+
         /* ブランク（無音）スキップ */
         .blank-row {
             display: flex;
@@ -247,11 +261,33 @@
             width: 30px;
             height: 30px;
         }
-        #blank-status {
+        .blank-status-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
             min-width: 170px;
+        }
+        #blank-status {
             text-align: center;
-            cursor: pointer;
+            pointer-events: none; /* タップ/クリックは重なった透明ボタン側で受け、テキスト選択を防ぐ */
+            -webkit-user-select: none;
             user-select: none;
+        }
+        .blank-status-hit {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            right: -8px;
+            bottom: -8px;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
         }
         .blank-nav-btn.disabled {
             opacity: 0.3;
@@ -336,7 +372,10 @@
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
             </svg>
         </div>
-        <span id="blank-status">ブランク検出: 確認中…</span>
+        <div class="blank-status-wrap">
+            <span id="blank-status">ブランク検出: 確認中…</span>
+            <button type="button" class="blank-status-hit" id="blank-status-hit" aria-label="ブランク検出の状態（タップで許可/再検索、長押しでリセット）"></button>
+        </div>
         <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
             <svg viewBox="0 0 24 24">
                 <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
@@ -388,10 +427,11 @@
             <input type="file" id="audio-file" accept="audio/*">
         </label>
 
-        <div class="icon-btn" id="talk-enhance-btn" title="トーク強調（声の帯域を強調）">
+        <div class="icon-btn sleep-combo" id="talk-enhance-btn" title="トーク強調（クリックで切替: OFF→Low→High）">
             <svg viewBox="0 0 24 24">
                 <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zm12-16v16h4V4h-4z"/>
             </svg>
+            <span id="talk-enhance-status">OFF</span>
         </div>
 
         <div class="icon-btn sleep-combo" id="sleep-btn" title="スリープタイマー（クリックで切替）">
@@ -433,11 +473,13 @@
     const rewindBtn = document.getElementById('rewind-btn');
     const forwardBtn = document.getElementById('forward-btn');
     const talkEnhanceBtn = document.getElementById('talk-enhance-btn');
+    const talkEnhanceStatus = document.getElementById('talk-enhance-status');
     const sleepBtn = document.getElementById('sleep-btn');
     const sleepStatus = document.getElementById('sleep-status');
     const blankPrevBtn = document.getElementById('blank-prev-btn');
     const blankNextBtn = document.getElementById('blank-next-btn');
     const blankStatus = document.getElementById('blank-status');
+    const blankStatusHit = document.getElementById('blank-status-hit');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -886,14 +928,14 @@
             }
         }
 
-        blankStatus.addEventListener('mousedown', start);
-        blankStatus.addEventListener('mouseup', cancelTimer);
-        blankStatus.addEventListener('mouseleave', cancelTimer);
-        blankStatus.addEventListener('touchstart', start, { passive: true });
-        blankStatus.addEventListener('touchend', cancelTimer);
-        blankStatus.addEventListener('touchmove', cancelTimer);
+        blankStatusHit.addEventListener('mousedown', start);
+        blankStatusHit.addEventListener('mouseup', cancelTimer);
+        blankStatusHit.addEventListener('mouseleave', cancelTimer);
+        blankStatusHit.addEventListener('touchstart', start, { passive: true });
+        blankStatusHit.addEventListener('touchend', cancelTimer);
+        blankStatusHit.addEventListener('touchmove', cancelTimer);
 
-        blankStatus.addEventListener('click', async () => {
+        blankStatusHit.addEventListener('click', async () => {
             if (longPressFired) { longPressFired = false; return; } // 長押し操作直後のclickは無視
             if (!currentFileName) return;
             if (blankUIState !== 'notfound' && blankUIState !== 'unsupported') return;
@@ -1199,20 +1241,25 @@
     // BiquadFilterNodeはネイティブ実装で非常に軽量なため、常時接続しておき、
     // オン/オフはパラメータ（gain/frequency）の切り替えだけで行う。
     // ・低域ハイパス: 環境ノイズを緩やかにカット
-    // ・ピーキングEQ : 2kHz付近（声の明瞭度に効く帯域）を+5dBブースト
+    // ・ピーキングEQ : 2kHz付近（声の明瞭度に効く帯域）をブースト
     // ----------------------------------------------------
     let talkAudioCtx = null;
     let talkMediaSource = null;
     let talkLowCutFilter = null;
     let talkSpeechFilter = null;
-    let talkEnhanceOn = false;
+    let talkEnhanceLevel = 'off'; // 'off' | 'low' | 'high'
 
-    const TALK_HIGHPASS_HZ = 150;   // オン時: これ以下の低音を緩やかにカット
-    const TALK_HIGHPASS_OFF_HZ = 20; // オフ時: 可聴域に影響しない下限に設定して事実上無効化
-    const TALK_PEAK_FREQ = 2000;    // 中心周波数 2kHz
+    const TALK_PEAK_FREQ = 2000;    // 中心周波数 2kHz（声の明瞭度に効く帯域、レベル共通）
     const TALK_PEAK_Q = 1.0;
-    const TALK_PEAK_GAIN_ON = 5.0;  // +5dB ブースト
-    const TALK_PEAK_GAIN_OFF = 0.0;
+
+    // レベルごとの設定。段階が上がるほど低音カットを強め、ブースト量を増やす。
+    const TALK_LEVELS = {
+        off:  { highpass: 20,  peakGain: 0.0 },  // 事実上無効化
+        low:  { highpass: 150, peakGain: 5.0 },  // これまでのオン相当
+        high: { highpass: 220, peakGain: 9.0 }   // さらに声を強調
+    };
+    const TALK_LEVEL_ORDER = ['off', 'low', 'high'];
+    const TALK_LEVEL_LABEL = { off: 'OFF', low: 'Low', high: 'High' };
 
     function ensureTalkAudioGraph() {
         if (talkAudioCtx) return true;
@@ -1225,13 +1272,13 @@
 
             talkLowCutFilter = talkAudioCtx.createBiquadFilter();
             talkLowCutFilter.type = 'highpass';
-            talkLowCutFilter.frequency.value = TALK_HIGHPASS_OFF_HZ;
+            talkLowCutFilter.frequency.value = TALK_LEVELS.off.highpass;
 
             talkSpeechFilter = talkAudioCtx.createBiquadFilter();
             talkSpeechFilter.type = 'peaking';
             talkSpeechFilter.frequency.value = TALK_PEAK_FREQ;
             talkSpeechFilter.Q.value = TALK_PEAK_Q;
-            talkSpeechFilter.gain.value = TALK_PEAK_GAIN_OFF;
+            talkSpeechFilter.gain.value = TALK_LEVELS.off.peakGain;
 
             talkMediaSource.connect(talkLowCutFilter);
             talkLowCutFilter.connect(talkSpeechFilter);
@@ -1244,23 +1291,33 @@
         }
     }
 
-    function setTalkEnhance(on) {
+    function setTalkEnhanceLevel(level) {
         if (!ensureTalkAudioGraph()) return; // 非対応環境では何もしない
 
         if (talkAudioCtx.state === 'suspended') {
             talkAudioCtx.resume().catch(() => {});
         }
 
-        talkEnhanceOn = on;
+        talkEnhanceLevel = level;
+        const cfg = TALK_LEVELS[level];
         const now = talkAudioCtx.currentTime;
-        talkLowCutFilter.frequency.setTargetAtTime(on ? TALK_HIGHPASS_HZ : TALK_HIGHPASS_OFF_HZ, now, 0.05);
-        talkSpeechFilter.gain.setTargetAtTime(on ? TALK_PEAK_GAIN_ON : TALK_PEAK_GAIN_OFF, now, 0.05);
+        talkLowCutFilter.frequency.setTargetAtTime(cfg.highpass, now, 0.05);
+        talkSpeechFilter.gain.setTargetAtTime(cfg.peakGain, now, 0.05);
 
-        talkEnhanceBtn.classList.toggle('active', talkEnhanceOn);
+        talkEnhanceBtn.classList.remove('level-low', 'level-high');
+        if (level === 'low') talkEnhanceBtn.classList.add('level-low');
+        if (level === 'high') talkEnhanceBtn.classList.add('level-high');
+
+        talkEnhanceStatus.textContent = TALK_LEVEL_LABEL[level];
+        talkEnhanceStatus.classList.remove('level-low', 'level-high');
+        if (level === 'low') talkEnhanceStatus.classList.add('level-low');
+        if (level === 'high') talkEnhanceStatus.classList.add('level-high');
     }
 
     talkEnhanceBtn.addEventListener('click', () => {
-        setTalkEnhance(!talkEnhanceOn);
+        const idx = TALK_LEVEL_ORDER.indexOf(talkEnhanceLevel);
+        const next = TALK_LEVEL_ORDER[(idx + 1) % TALK_LEVEL_ORDER.length];
+        setTalkEnhanceLevel(next);
     });
 
     // ----------------------------------------------------
