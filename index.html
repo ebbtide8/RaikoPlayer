@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.7</title>
+    <title>Radio Player PWA - 2.1.8</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -594,6 +594,110 @@
         localStorage.setItem(`resume_${currentFileName}`, JSON.stringify(record));
         lastSavedTime = position;
         syncPost({ file: currentFileName, resume: record });
+        savePositionToJSONFolder(currentFileName, position); // Dropbox経由の同期用（_JSON/*.position.json）
+    }
+
+    // _JSONフォルダへ <ファイル名>.position.json を書き込む（一時停止時のみ呼ばれる）。
+    // Dropbox等でこのフォルダ自体が他デバイスと同期されていれば、それを介して
+    // 再生位置を共有できる。書き込み権限がまだ無い場合は、プロンプトを出さず静かに諦める
+    // （一時停止はスリープタイマー由来など非ジェスチャーで発火することもあるため）。
+    async function savePositionToJSONFolder(fileName, position) {
+        if (!FS_ACCESS_SUPPORTED || !fileName) return;
+        if (!cachedAudioDirHandle) return;
+
+        try {
+            const hasWrite = await verifyDirPermission(cachedAudioDirHandle, false);
+            if (!hasWrite) return;
+
+            const jsonDirHandle = await cachedAudioDirHandle.getDirectoryHandle('_JSON', { create: true });
+            const baseName = fileName.replace(/\.[^/.]+$/, '');
+            const fileHandle = await jsonDirHandle.getFileHandle(`${baseName}.position.json`, { create: true });
+            const writable = await fileHandle.createWritable();
+
+            const payload = {
+                app: 'RadikoPWA-PositionSync',
+                version: 1,
+                fileName: fileName,
+                position: position,
+                updated: new Date().toISOString()
+            };
+
+            await writable.write(JSON.stringify(payload, null, 2));
+            await writable.close();
+            console.log(`[position.json] 保存: ${baseName}.position.json (${position.toFixed(1)}秒)`);
+        } catch (e) {
+            console.log('[position.json] 保存に失敗しました', e);
+        }
+    }
+
+    // _JSONフォルダの <ファイル名>.position.json を確認し、ローカルの再生位置より新しければ採用する。
+    // updated（保存日時）で比較する「後勝ち」方式。 macで100秒→Androidで70秒に巻き戻して停止、
+    // という場合も、より新しく保存された70秒側が正しく優先される。
+    async function syncPositionFromJSONFolder(myFileName, myToken) {
+        if (!FS_ACCESS_SUPPORTED || !myFileName) return;
+
+        const dirHandle = await getAudioDirHandleSilently();
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+        if (!dirHandle) return;
+
+        let jsonDirHandle;
+        try {
+            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON');
+        } catch (e) {
+            return; // _JSONフォルダが無い
+        }
+
+        const audioBase = myFileName.replace(/\.[^/.]+$/, '');
+        const targetName = normalizeFileNameForCompare(`${audioBase}.position.json`);
+
+        let matchedFile = null;
+        try {
+            for await (const [name, handle] of jsonDirHandle.entries()) {
+                if (handle.kind !== 'file') continue;
+                if (normalizeFileNameForCompare(name) === targetName) {
+                    matchedFile = await handle.getFile();
+                    break;
+                }
+            }
+        } catch (e) {
+            console.log('[position.json] "_JSON"フォルダの読み取りに失敗', e);
+            return;
+        }
+        if (!matchedFile) return; // position.jsonが無ければ、そのファイルは未再生とみなし先頭から
+
+        let data;
+        try {
+            data = JSON.parse(await matchedFile.text());
+        } catch (e) {
+            console.log('[position.json] JSON解析に失敗', e);
+            return;
+        }
+        if (!data || typeof data.position !== 'number' || !data.updated) return;
+        if (data.fileName && normalizeFileNameForCompare(data.fileName) !== normalizeFileNameForCompare(myFileName)) return;
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        const rawLocal = localStorage.getItem(`resume_${myFileName}`);
+        let localRecord = null;
+        try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
+
+        const cloudUpdatedMs = new Date(data.updated).getTime();
+        const localUpdatedMs = localRecord ? localRecord.updatedAt : 0;
+
+        if (!localRecord || cloudUpdatedMs > localUpdatedMs) {
+            const record = { position: data.position, updatedAt: cloudUpdatedMs };
+            localStorage.setItem(`resume_${myFileName}`, JSON.stringify(record));
+
+            // 再生開始直後であれば、他デバイスでの続きの位置に合わせる
+            if (audioPlayer.currentTime < 3 && data.position > 0) {
+                audioPlayer.currentTime = data.position;
+                resumeStatus.textContent = '前回位置から再開（_JSON同期）';
+                setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+            }
+            console.log(`[position.json] 読み込み・適用: ${data.position.toFixed(1)}秒 (更新: ${data.updated})`);
+        } else {
+            console.log(`[position.json] ローカルの方が新しいため適用せず（ローカル更新:${new Date(localUpdatedMs).toISOString()} / _JSON更新:${data.updated}）`);
+        }
     }
 
     // 別端末（Mac⇔Android）で保存されたレジューム位置・ブランク検出結果を取得して反映
@@ -819,7 +923,9 @@
     }
 
     async function verifyDirPermission(handle, allowPrompt) {
-        const opts = { mode: 'read' };
+        // 読み取り専用ではなく readwrite で統一する。position.json の書き込みに必要なため。
+        // （readwriteの許可は読み取りも内包するので、blanks.jsonの読み込み用途にもそのまま使える）
+        const opts = { mode: 'readwrite' };
         try {
             if (allowPrompt) {
                 return (await handle.requestPermission(opts)) === 'granted';
@@ -857,10 +963,12 @@
     // タップ（明示的なクリック）から呼ぶ用：showDirectoryPicker/requestPermissionを
     // 一切のawaitを挟まず、ハンドラの最初の非同期処理として直接呼ぶ。
     // これにより「ユーザー操作起因」であることをブラウザに正しく認識させる。
+    // ※ readwriteで要求するため、以前read専用で許可していたユーザーは
+    //   一度だけ許可し直しが必要になる（position.json書き込みのため）。
     async function requestAudioDirHandleFromGesture() {
         if (cachedAudioDirHandle) {
             try {
-                if ((await cachedAudioDirHandle.requestPermission({ mode: 'read' })) === 'granted') {
+                if ((await cachedAudioDirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') {
                     console.log(`[_JSON自動探索] 許可を再確認: "${cachedAudioDirHandle.name}"`);
                     return cachedAudioDirHandle;
                 }
@@ -869,7 +977,7 @@
             }
         }
         try {
-            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
+            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'readwrite' });
             console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
             cachedAudioDirHandle = handle;
             idbSet('audioDirHandle', handle);
@@ -1038,6 +1146,9 @@
             }
         });
 
+        // _JSONフォルダの position.json（他デバイスでの再生位置）も同様に確認する
+        syncPositionFromJSONFolder(file.name, fileToken);
+
         // Macの同期サーバーに、レジューム位置・ブランク検出結果のキャッシュがないか確認
         // （GitHub Pages利用時やMacが同じWi-Fiにいない場合は静かに失敗し、通常のローカル保存にフォールバックする）
         handleRemoteSync(file.name, fileToken);
@@ -1204,6 +1315,7 @@
         if (currentFileName) {
             localStorage.removeItem(`resume_${currentFileName}`);
             syncPost({ file: currentFileName, resume: { position: 0, updatedAt: Date.now() } });
+            savePositionToJSONFolder(currentFileName, 0);
         }
     });
 
