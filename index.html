@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.1.8</title>
+    <title>Radio Player PWA - 2.2.1</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -204,6 +204,13 @@
             padding: 0 4px;
             height: 50px;
             margin-top: 14px;
+        }
+        .version-tag {
+            text-align: center;
+            font-size: 10px;
+            color: #555;
+            margin-top: 4px;
+            user-select: none;
         }
         .utility-row .icon-btn svg {
             width: 30px;
@@ -448,6 +455,8 @@
         </div>
     </div>
 
+    <div class="version-tag">v2.2.1</div>
+
     <audio id="audio-player" style="display: none;"></audio>
 
     <div class="lyrics-overlay" id="lyrics-overlay">
@@ -495,6 +504,9 @@
     const lyricsClose = document.getElementById('lyrics-close');
 
     let currentFileName = "";
+    let userSeekedSinceLoad = false; // シークバー操作や早送り/巻き戻しなど、ユーザーが自分で位置を変えたか
+                                      // （非同期の_JSON読み込みが遅れて自動再生が数秒進んでしまっても、
+                                      //   ユーザー自身が操作していなければ他デバイスの位置を適用してよい判断に使う）
     let currentHpUrl = "";
     let isDragging = false;
     let wasPlayingBeforeDrag = false;
@@ -530,6 +542,7 @@
         const val = parseFloat(e.target.value);
         audioPlayer.currentTime = val;
         isDragging = false;
+        userSeekedSinceLoad = true;
 
         if (wasPlayingBeforeDrag) {
             audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
@@ -588,6 +601,36 @@
         });
     }
 
+    // 日本標準時（UTC+9固定）でISO 8601形式の文字列を生成する（例: 2026-08-22T03:23:25.957+09:00）。
+    // Zulu(UTC)表記だと目視した時に違和感があるため。オフセット付きISO文字列なので、
+    // new Date(str).getTime() による比較（他デバイスとの新旧判定）には引き続き問題なく使える。
+    function toJSTISOString(date) {
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jst = new Date(date.getTime() + jstOffsetMs);
+        const pad = (n, l = 2) => String(n).padStart(l, '0');
+        return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())}T` +
+               `${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}:${pad(jst.getUTCSeconds())}.` +
+               `${pad(jst.getUTCMilliseconds(), 3)}+09:00`;
+    }
+
+    // このブラウザ（端末）を識別するための簡単なラベルを生成・保存する。
+    // 「どのデバイスから書き込まれたか」をposition.json上で目視できるようにするための情報で、
+    // 個人情報等は含まない（OS種別＋ランダムな4桁のみ）。
+    function getDeviceLabel() {
+        let label = localStorage.getItem('deviceLabel');
+        if (!label) {
+            const ua = navigator.userAgent;
+            const isAndroid = /Android/i.test(ua);
+            const isMac = !isAndroid && /Macintosh|Mac OS X/i.test(ua);
+            const isWindows = !isAndroid && /Windows/i.test(ua);
+            const osLabel = isAndroid ? 'Android' : isMac ? 'Mac' : isWindows ? 'Windows' : 'Device';
+            const randomSuffix = Math.random().toString(16).slice(2, 6).toUpperCase();
+            label = `${osLabel}-${randomSuffix}`;
+            localStorage.setItem('deviceLabel', label);
+        }
+        return label;
+    }
+
     function saveResumePosition(position) {
         if (!currentFileName || position <= 0) return;
         const record = { position, updatedAt: Date.now() };
@@ -619,12 +662,13 @@
                 version: 1,
                 fileName: fileName,
                 position: position,
-                updated: new Date().toISOString()
+                updated: toJSTISOString(new Date()),
+                device: getDeviceLabel()
             };
 
             await writable.write(JSON.stringify(payload, null, 2));
             await writable.close();
-            console.log(`[position.json] 保存: ${baseName}.position.json (${position.toFixed(1)}秒)`);
+            console.log(`[position.json] 保存: ${baseName}.position.json (${position.toFixed(1)}秒, ${payload.device})`);
         } catch (e) {
             console.log('[position.json] 保存に失敗しました', e);
         }
@@ -688,8 +732,11 @@
             const record = { position: data.position, updatedAt: cloudUpdatedMs };
             localStorage.setItem(`resume_${myFileName}`, JSON.stringify(record));
 
-            // 再生開始直後であれば、他デバイスでの続きの位置に合わせる
-            if (audioPlayer.currentTime < 3 && data.position > 0) {
+            // ユーザー自身がまだ手動でシークしていなければ、他デバイスでの続きの位置に合わせる。
+            // （_JSON読み込みは複数の非同期処理を経るため数秒かかることがあり、
+            //   currentTimeの経過秒数で判定すると自動再生の先行によって誤って諦めてしまうため、
+            //   実際に人間が操作したかどうかで判断する）
+            if (!userSeekedSinceLoad && data.position > 0) {
                 audioPlayer.currentTime = data.position;
                 resumeStatus.textContent = '前回位置から再開（_JSON同期）';
                 setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
@@ -712,8 +759,8 @@
 
             if (!localRecord || remote.resume.updatedAt > localRecord.updatedAt) {
                 localStorage.setItem(`resume_${fileName}`, JSON.stringify(remote.resume));
-                // 再生開始直後であれば、もう一方の端末の続きの位置に合わせる
-                if (audioPlayer.currentTime < 3 && remote.resume.position > 0) {
+                // ユーザー自身がまだ手動でシークしていなければ、もう一方の端末の続きの位置に合わせる
+                if (!userSeekedSinceLoad && remote.resume.position > 0) {
                     audioPlayer.currentTime = remote.resume.position;
                     resumeStatus.textContent = '前回位置から再開（Mac同期）';
                     setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
@@ -808,11 +855,13 @@
     blankNextBtn.addEventListener('click', () => {
         if (blankNextBtn.classList.contains('disabled')) return;
         jumpToNextBlank();
+        userSeekedSinceLoad = true;
     });
 
     blankPrevBtn.addEventListener('click', () => {
         if (blankPrevBtn.classList.contains('disabled')) return;
         jumpToPrevBlank();
+        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
@@ -1125,6 +1174,7 @@
         if (!file) return;
 
         currentFileName = file.name;
+        userSeekedSinceLoad = false;
         currentHpUrl = "";
         hpBtn.classList.add('disabled');
         resumeStatus.textContent = ""; 
@@ -1438,23 +1488,27 @@
     rewindBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+        userSeekedSinceLoad = true;
     });
 
     forwardBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+        userSeekedSinceLoad = true;
     });
 
     rewind30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
+        userSeekedSinceLoad = true;
     });
 
     forward30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
+        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
