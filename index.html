@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.2.1</title>
+    <title>Radio Player PWA - 2.2.2</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -455,7 +455,7 @@
         </div>
     </div>
 
-    <div class="version-tag">v2.2.1</div>
+    <div class="version-tag">v2.2.2</div>
 
     <audio id="audio-player" style="display: none;"></audio>
 
@@ -504,9 +504,6 @@
     const lyricsClose = document.getElementById('lyrics-close');
 
     let currentFileName = "";
-    let userSeekedSinceLoad = false; // シークバー操作や早送り/巻き戻しなど、ユーザーが自分で位置を変えたか
-                                      // （非同期の_JSON読み込みが遅れて自動再生が数秒進んでしまっても、
-                                      //   ユーザー自身が操作していなければ他デバイスの位置を適用してよい判断に使う）
     let currentHpUrl = "";
     let isDragging = false;
     let wasPlayingBeforeDrag = false;
@@ -542,7 +539,6 @@
         const val = parseFloat(e.target.value);
         audioPlayer.currentTime = val;
         isDragging = false;
-        userSeekedSinceLoad = true;
 
         if (wasPlayingBeforeDrag) {
             audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
@@ -601,150 +597,12 @@
         });
     }
 
-    // 日本標準時（UTC+9固定）でISO 8601形式の文字列を生成する（例: 2026-08-22T03:23:25.957+09:00）。
-    // Zulu(UTC)表記だと目視した時に違和感があるため。オフセット付きISO文字列なので、
-    // new Date(str).getTime() による比較（他デバイスとの新旧判定）には引き続き問題なく使える。
-    function toJSTISOString(date) {
-        const jstOffsetMs = 9 * 60 * 60 * 1000;
-        const jst = new Date(date.getTime() + jstOffsetMs);
-        const pad = (n, l = 2) => String(n).padStart(l, '0');
-        return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())}T` +
-               `${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}:${pad(jst.getUTCSeconds())}.` +
-               `${pad(jst.getUTCMilliseconds(), 3)}+09:00`;
-    }
-
-    // このブラウザ（端末）を識別するための簡単なラベルを生成・保存する。
-    // 「どのデバイスから書き込まれたか」をposition.json上で目視できるようにするための情報で、
-    // 個人情報等は含まない（OS種別＋ランダムな4桁のみ）。
-    function getDeviceLabel() {
-        let label = localStorage.getItem('deviceLabel');
-        if (!label) {
-            const ua = navigator.userAgent;
-            const isAndroid = /Android/i.test(ua);
-            const isMac = !isAndroid && /Macintosh|Mac OS X/i.test(ua);
-            const isWindows = !isAndroid && /Windows/i.test(ua);
-            const osLabel = isAndroid ? 'Android' : isMac ? 'Mac' : isWindows ? 'Windows' : 'Device';
-            const randomSuffix = Math.random().toString(16).slice(2, 6).toUpperCase();
-            label = `${osLabel}-${randomSuffix}`;
-            localStorage.setItem('deviceLabel', label);
-        }
-        return label;
-    }
-
     function saveResumePosition(position) {
         if (!currentFileName || position <= 0) return;
         const record = { position, updatedAt: Date.now() };
         localStorage.setItem(`resume_${currentFileName}`, JSON.stringify(record));
         lastSavedTime = position;
         syncPost({ file: currentFileName, resume: record });
-        savePositionToJSONFolder(currentFileName, position); // Dropbox経由の同期用（_JSON/*.position.json）
-    }
-
-    // _JSONフォルダへ <ファイル名>.position.json を書き込む（一時停止時のみ呼ばれる）。
-    // Dropbox等でこのフォルダ自体が他デバイスと同期されていれば、それを介して
-    // 再生位置を共有できる。書き込み権限がまだ無い場合は、プロンプトを出さず静かに諦める
-    // （一時停止はスリープタイマー由来など非ジェスチャーで発火することもあるため）。
-    async function savePositionToJSONFolder(fileName, position) {
-        if (!FS_ACCESS_SUPPORTED || !fileName) return;
-        if (!cachedAudioDirHandle) return;
-
-        try {
-            const hasWrite = await verifyDirPermission(cachedAudioDirHandle, false);
-            if (!hasWrite) return;
-
-            const jsonDirHandle = await cachedAudioDirHandle.getDirectoryHandle('_JSON', { create: true });
-            const baseName = fileName.replace(/\.[^/.]+$/, '');
-            const fileHandle = await jsonDirHandle.getFileHandle(`${baseName}.position.json`, { create: true });
-            const writable = await fileHandle.createWritable();
-
-            const payload = {
-                app: 'RadikoPWA-PositionSync',
-                version: 1,
-                fileName: fileName,
-                position: position,
-                updated: toJSTISOString(new Date()),
-                device: getDeviceLabel()
-            };
-
-            await writable.write(JSON.stringify(payload, null, 2));
-            await writable.close();
-            console.log(`[position.json] 保存: ${baseName}.position.json (${position.toFixed(1)}秒, ${payload.device})`);
-        } catch (e) {
-            console.log('[position.json] 保存に失敗しました', e);
-        }
-    }
-
-    // _JSONフォルダの <ファイル名>.position.json を確認し、ローカルの再生位置より新しければ採用する。
-    // updated（保存日時）で比較する「後勝ち」方式。 macで100秒→Androidで70秒に巻き戻して停止、
-    // という場合も、より新しく保存された70秒側が正しく優先される。
-    async function syncPositionFromJSONFolder(myFileName, myToken) {
-        if (!FS_ACCESS_SUPPORTED || !myFileName) return;
-
-        const dirHandle = await getAudioDirHandleSilently();
-        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
-        if (!dirHandle) return;
-
-        let jsonDirHandle;
-        try {
-            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON');
-        } catch (e) {
-            return; // _JSONフォルダが無い
-        }
-
-        const audioBase = myFileName.replace(/\.[^/.]+$/, '');
-        const targetName = normalizeFileNameForCompare(`${audioBase}.position.json`);
-
-        let matchedFile = null;
-        try {
-            for await (const [name, handle] of jsonDirHandle.entries()) {
-                if (handle.kind !== 'file') continue;
-                if (normalizeFileNameForCompare(name) === targetName) {
-                    matchedFile = await handle.getFile();
-                    break;
-                }
-            }
-        } catch (e) {
-            console.log('[position.json] "_JSON"フォルダの読み取りに失敗', e);
-            return;
-        }
-        if (!matchedFile) return; // position.jsonが無ければ、そのファイルは未再生とみなし先頭から
-
-        let data;
-        try {
-            data = JSON.parse(await matchedFile.text());
-        } catch (e) {
-            console.log('[position.json] JSON解析に失敗', e);
-            return;
-        }
-        if (!data || typeof data.position !== 'number' || !data.updated) return;
-        if (data.fileName && normalizeFileNameForCompare(data.fileName) !== normalizeFileNameForCompare(myFileName)) return;
-
-        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
-
-        const rawLocal = localStorage.getItem(`resume_${myFileName}`);
-        let localRecord = null;
-        try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
-
-        const cloudUpdatedMs = new Date(data.updated).getTime();
-        const localUpdatedMs = localRecord ? localRecord.updatedAt : 0;
-
-        if (!localRecord || cloudUpdatedMs > localUpdatedMs) {
-            const record = { position: data.position, updatedAt: cloudUpdatedMs };
-            localStorage.setItem(`resume_${myFileName}`, JSON.stringify(record));
-
-            // ユーザー自身がまだ手動でシークしていなければ、他デバイスでの続きの位置に合わせる。
-            // （_JSON読み込みは複数の非同期処理を経るため数秒かかることがあり、
-            //   currentTimeの経過秒数で判定すると自動再生の先行によって誤って諦めてしまうため、
-            //   実際に人間が操作したかどうかで判断する）
-            if (!userSeekedSinceLoad && data.position > 0) {
-                audioPlayer.currentTime = data.position;
-                resumeStatus.textContent = '前回位置から再開（_JSON同期）';
-                setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
-            }
-            console.log(`[position.json] 読み込み・適用: ${data.position.toFixed(1)}秒 (更新: ${data.updated})`);
-        } else {
-            console.log(`[position.json] ローカルの方が新しいため適用せず（ローカル更新:${new Date(localUpdatedMs).toISOString()} / _JSON更新:${data.updated}）`);
-        }
     }
 
     // 別端末（Mac⇔Android）で保存されたレジューム位置・ブランク検出結果を取得して反映
@@ -759,8 +617,8 @@
 
             if (!localRecord || remote.resume.updatedAt > localRecord.updatedAt) {
                 localStorage.setItem(`resume_${fileName}`, JSON.stringify(remote.resume));
-                // ユーザー自身がまだ手動でシークしていなければ、もう一方の端末の続きの位置に合わせる
-                if (!userSeekedSinceLoad && remote.resume.position > 0) {
+                // 再生開始直後であれば、もう一方の端末の続きの位置に合わせる
+                if (audioPlayer.currentTime < 3 && remote.resume.position > 0) {
                     audioPlayer.currentTime = remote.resume.position;
                     resumeStatus.textContent = '前回位置から再開（Mac同期）';
                     setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
@@ -855,13 +713,11 @@
     blankNextBtn.addEventListener('click', () => {
         if (blankNextBtn.classList.contains('disabled')) return;
         jumpToNextBlank();
-        userSeekedSinceLoad = true;
     });
 
     blankPrevBtn.addEventListener('click', () => {
         if (blankPrevBtn.classList.contains('disabled')) return;
         jumpToPrevBlank();
-        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
@@ -972,9 +828,7 @@
     }
 
     async function verifyDirPermission(handle, allowPrompt) {
-        // 読み取り専用ではなく readwrite で統一する。position.json の書き込みに必要なため。
-        // （readwriteの許可は読み取りも内包するので、blanks.jsonの読み込み用途にもそのまま使える）
-        const opts = { mode: 'readwrite' };
+        const opts = { mode: 'read' };
         try {
             if (allowPrompt) {
                 return (await handle.requestPermission(opts)) === 'granted';
@@ -1012,12 +866,10 @@
     // タップ（明示的なクリック）から呼ぶ用：showDirectoryPicker/requestPermissionを
     // 一切のawaitを挟まず、ハンドラの最初の非同期処理として直接呼ぶ。
     // これにより「ユーザー操作起因」であることをブラウザに正しく認識させる。
-    // ※ readwriteで要求するため、以前read専用で許可していたユーザーは
-    //   一度だけ許可し直しが必要になる（position.json書き込みのため）。
     async function requestAudioDirHandleFromGesture() {
         if (cachedAudioDirHandle) {
             try {
-                if ((await cachedAudioDirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') {
+                if ((await cachedAudioDirHandle.requestPermission({ mode: 'read' })) === 'granted') {
                     console.log(`[_JSON自動探索] 許可を再確認: "${cachedAudioDirHandle.name}"`);
                     return cachedAudioDirHandle;
                 }
@@ -1026,7 +878,7 @@
             }
         }
         try {
-            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'readwrite' });
+            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
             console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
             cachedAudioDirHandle = handle;
             idbSet('audioDirHandle', handle);
@@ -1174,7 +1026,6 @@
         if (!file) return;
 
         currentFileName = file.name;
-        userSeekedSinceLoad = false;
         currentHpUrl = "";
         hpBtn.classList.add('disabled');
         resumeStatus.textContent = ""; 
@@ -1195,9 +1046,6 @@
                 updateBlankUI(FS_ACCESS_SUPPORTED ? 'notfound' : 'unsupported');
             }
         });
-
-        // _JSONフォルダの position.json（他デバイスでの再生位置）も同様に確認する
-        syncPositionFromJSONFolder(file.name, fileToken);
 
         // Macの同期サーバーに、レジューム位置・ブランク検出結果のキャッシュがないか確認
         // （GitHub Pages利用時やMacが同じWi-Fiにいない場合は静かに失敗し、通常のローカル保存にフォールバックする）
@@ -1365,7 +1213,6 @@
         if (currentFileName) {
             localStorage.removeItem(`resume_${currentFileName}`);
             syncPost({ file: currentFileName, resume: { position: 0, updatedAt: Date.now() } });
-            savePositionToJSONFolder(currentFileName, 0);
         }
     });
 
@@ -1488,27 +1335,23 @@
     rewindBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
-        userSeekedSinceLoad = true;
     });
 
     forwardBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
-        userSeekedSinceLoad = true;
     });
 
     rewind30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
-        userSeekedSinceLoad = true;
     });
 
     forward30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
-        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
