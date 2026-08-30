@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.2.2</title>
+    <title>Radio Player PWA - 2.2.3</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -455,7 +455,7 @@
         </div>
     </div>
 
-    <div class="version-tag">v2.2.2</div>
+    <div class="version-tag">v2.2.3</div>
 
     <audio id="audio-player" style="display: none;"></audio>
 
@@ -512,9 +512,7 @@
 
     let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）。_JSONのblanks.jsonから読み込まれる
     let blankScanToken = 0;       // ファイル切り替え時に古い非同期処理の結果を無視するためのトークン
-    let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか（同期サーバーからの上書き防止に使用）
-
-    let syncBackoffUntil = 0;     // Mac同期サーバーに繋がらない場合、しばらく再試行を控える（無駄な待ち時間を防ぐ）
+    let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか
 
     const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
     const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
@@ -558,79 +556,11 @@
         timeDisplay.textContent = `${formatTime(current)} / ${formatTime(total)}`;
     }
 
-    // ----------------------------------------------------
-    // Mac側ローカル同期サーバーとの通信
-    // ・GitHub Pages等で開いている場合や、Macが同じWi-Fiにいない場合は
-    //   単に失敗するだけで、通常のローカル保存にフォールバックする
-    // ・接続に失敗したら30秒はリトライを控える（毎回長く待たされるのを防ぐ）
-    // ----------------------------------------------------
-    async function syncFetch(fileName) {
-        if (Date.now() < syncBackoffUntil) return null;
-        try {
-            const controller = new AbortController();
-            const timer = setTimeout(() => controller.abort(), 1500);
-            const res = await fetch(`/api/state?file=${encodeURIComponent(fileName)}`, {
-                cache: 'no-store',
-                signal: controller.signal
-            });
-            clearTimeout(timer);
-            if (!res.ok) { syncBackoffUntil = Date.now() + 30000; return null; }
-            return await res.json();
-        } catch (e) {
-            syncBackoffUntil = Date.now() + 30000;
-            return null;
-        }
-    }
-
-    function syncPost(payload) {
-        if (Date.now() < syncBackoffUntil) return;
-        const controller = new AbortController();
-        const timer = setTimeout(() => controller.abort(), 1500);
-        fetch('/api/state', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload),
-            signal: controller.signal
-        }).then(() => clearTimeout(timer)).catch(() => {
-            clearTimeout(timer);
-            syncBackoffUntil = Date.now() + 30000;
-        });
-    }
-
     function saveResumePosition(position) {
         if (!currentFileName || position <= 0) return;
         const record = { position, updatedAt: Date.now() };
         localStorage.setItem(`resume_${currentFileName}`, JSON.stringify(record));
         lastSavedTime = position;
-        syncPost({ file: currentFileName, resume: record });
-    }
-
-    // 別端末（Mac⇔Android）で保存されたレジューム位置・ブランク検出結果を取得して反映
-    async function handleRemoteSync(fileName, myToken) {
-        const remote = await syncFetch(fileName);
-        if (myToken !== blankScanToken) return; // その間に別のファイルへ切り替わっていたら破棄
-
-        if (remote && remote.resume) {
-            const rawLocal = localStorage.getItem(`resume_${fileName}`);
-            let localRecord = null;
-            try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
-
-            if (!localRecord || remote.resume.updatedAt > localRecord.updatedAt) {
-                localStorage.setItem(`resume_${fileName}`, JSON.stringify(remote.resume));
-                // 再生開始直後であれば、もう一方の端末の続きの位置に合わせる
-                if (audioPlayer.currentTime < 3 && remote.resume.position > 0) {
-                    audioPlayer.currentTime = remote.resume.position;
-                    resumeStatus.textContent = '前回位置から再開（Mac同期）';
-                    setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
-                }
-            }
-        }
-
-        if (remote && remote.blanks && Array.isArray(remote.blanks.intervals) && !blankLocalDone) {
-            blankScanToken++; // ローカルスキャンが後から終わっても、この結果を上書きさせない
-            blankIntervals = remote.blanks.intervals;
-            updateBlankUI('done');
-        }
     }
 
     // ----------------------------------------------------
@@ -766,12 +696,6 @@
             blankLocalDone = true;
             blankIntervals = intervals;
             updateBlankUI('done');
-
-            // 同期サーバーが利用可能な環境ではそちらにも反映しておく
-            syncPost({
-                file: currentFileName,
-                blanks: { intervals: blankIntervals, updatedAt: Date.now() }
-            });
         };
         reader.onerror = () => {
             console.log('JSONファイルの読み込みに失敗しました', file.name);
@@ -1047,10 +971,6 @@
             }
         });
 
-        // Macの同期サーバーに、レジューム位置・ブランク検出結果のキャッシュがないか確認
-        // （GitHub Pages利用時やMacが同じWi-Fiにいない場合は静かに失敗し、通常のローカル保存にフォールバックする）
-        handleRemoteSync(file.name, fileToken);
-
         jsmediatags.read(file, {
             onSuccess: function(tag) {
                 const tags = tag.tags;
@@ -1212,7 +1132,6 @@
         playBtn.classList.remove('playing');
         if (currentFileName) {
             localStorage.removeItem(`resume_${currentFileName}`);
-            syncPost({ file: currentFileName, resume: { position: 0, updatedAt: Date.now() } });
         }
     });
 
