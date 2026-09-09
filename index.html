@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.2.3</title>
+    <title>Radio Player PWA - 2.3.0</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -303,6 +303,47 @@
         .blank-nav-btn.disabled:hover { transform: scale(1); }
         #blank-status.ready { color: #2ecc71; }
 
+        /* 再生位置の同期ステータス（再生ボタンの下） */
+        .position-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+            margin-bottom: 4px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .position-status-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 170px;
+        }
+        #position-status {
+            text-align: center;
+            pointer-events: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .position-status-hit {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            right: -8px;
+            bottom: -8px;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+        #position-status.ready { color: #2ecc71; }
+        #position-status.error { color: #ff5252; }
+
         /* HPボタン */
         .hp-btn {
             opacity: 1;
@@ -426,6 +467,13 @@
         </div>
     </div>
 
+    <div class="position-row">
+        <div class="position-status-wrap">
+            <span id="position-status">再生位置：確認中…</span>
+            <button type="button" class="position-status-hit" id="position-status-hit" aria-label="再生位置同期の状態（タップで許可/再試行、長押しでリセット）"></button>
+        </div>
+    </div>
+
     <div class="utility-row">
         <label class="icon-btn" title="音声ファイルを選択">
             <svg viewBox="0 0 24 24">
@@ -455,7 +503,7 @@
         </div>
     </div>
 
-    <div class="version-tag">v2.2.3</div>
+    <div class="version-tag">v2.3.0</div>
 
     <audio id="audio-player" style="display: none;"></audio>
 
@@ -489,6 +537,8 @@
     const blankNextBtn = document.getElementById('blank-next-btn');
     const blankStatus = document.getElementById('blank-status');
     const blankStatusHit = document.getElementById('blank-status-hit');
+    const positionStatus = document.getElementById('position-status');
+    const positionStatusHit = document.getElementById('position-status-hit');
     const timeDisplay = document.getElementById('time-display');
     const seekBar = document.getElementById('seek-bar');
     const rewind30Btn = document.getElementById('rewind30-btn');
@@ -508,11 +558,20 @@
     let isDragging = false;
     let wasPlayingBeforeDrag = false;
     let lastSavedTime = 0;
-    const RESUME_SAVE_INTERVAL = 2; // 秒。厳密なレジューム精度は不要のため間引いて保存
+    let lastDiskSavedTime = 0;
+    const RESUME_SAVE_INTERVAL = 2;  // 秒。ローカル(localStorage)保存の間引き間隔
+    const DISK_SAVE_INTERVAL = 10;   // 秒。_JSON/*.blanks.json への書き込みの間引き間隔
+
+    let userSeekedSinceLoad = false; // シークバー操作や早送り/巻き戻しなど、ユーザーが自分で位置を変えたか
+                                      // （非同期の_JSON読み込みが遅れて自動再生が数秒進んでしまっても、
+                                      //   ユーザー自身が操作していなければ他デバイスの位置を適用してよい判断に使う）
 
     let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）。_JSONのblanks.jsonから読み込まれる
     let blankScanToken = 0;       // ファイル切り替え時に古い非同期処理の結果を無視するためのトークン
     let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか
+    let blanksFileData = null;    // 現在のファイルの.blanks.json全体（app/version/fileName/duration/generatedAt/intervals等）
+                                   // position更新時に、既存の内容を保ったまま書き戻すために保持しておく
+    let positionUIState = 'idle'; // 再生位置ステータス表示の現在の状態
 
     const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
     const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
@@ -537,6 +596,7 @@
         const val = parseFloat(e.target.value);
         audioPlayer.currentTime = val;
         isDragging = false;
+        userSeekedSinceLoad = true;
 
         if (wasPlayingBeforeDrag) {
             audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
@@ -615,6 +675,31 @@
         blankNextBtn.classList.toggle('disabled', passed >= total);
     }
 
+    // 「再生位置：〜」の表示を更新する
+    function updatePositionStatus(state) {
+        // state: 'checking' | 'loaded' | 'recording' | 'error' | 'nofolder' | 'unsupported'
+        positionUIState = state;
+        positionStatus.classList.remove('ready', 'error');
+
+        if (state === 'checking') {
+            positionStatus.textContent = '再生位置：確認中…';
+        } else if (state === 'loaded') {
+            positionStatus.textContent = '再生位置：読み込み完了';
+            positionStatus.classList.add('ready');
+        } else if (state === 'recording') {
+            positionStatus.textContent = '再生位置：記録中';
+            positionStatus.classList.add('ready');
+        } else if (state === 'error') {
+            positionStatus.textContent = '再生位置：読み込みエラー（タップで再試行）';
+            positionStatus.classList.add('error');
+        } else if (state === 'unsupported') {
+            positionStatus.textContent = '再生位置：非対応ブラウザ';
+        } else {
+            // 'nofolder'
+            positionStatus.textContent = '再生位置：タップで許可';
+        }
+    }
+
     function jumpToNextBlank() {
         if (!blankIntervals.length || !audioPlayer.src) return;
         const cur = audioPlayer.currentTime;
@@ -643,11 +728,13 @@
     blankNextBtn.addEventListener('click', () => {
         if (blankNextBtn.classList.contains('disabled')) return;
         jumpToNextBlank();
+        userSeekedSinceLoad = true;
     });
 
     blankPrevBtn.addEventListener('click', () => {
         if (blankPrevBtn.classList.contains('disabled')) return;
         jumpToPrevBlank();
+        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
@@ -665,42 +752,81 @@
             .replace(/[\u301C\uFF5E\u2053\u007E]/g, '~');
     }
 
-    function importBlankJSON(file) {
-        const reader = new FileReader();
-        reader.onload = () => {
-            let data;
-            try {
-                data = JSON.parse(reader.result);
-            } catch (e) {
-                console.log('JSON読み込み失敗（形式が正しくありません）', file.name);
-                return;
+    // 日本標準時（UTC+9固定）でISO 8601形式の文字列を生成する（例: 2026-08-22T03:23:25.957+09:00）。
+    // オフセット付きISO文字列なので、new Date(str).getTime() による新旧比較には引き続き問題なく使える。
+    function toJSTISOString(date) {
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jst = new Date(date.getTime() + jstOffsetMs);
+        const pad = (n, l = 2) => String(n).padStart(l, '0');
+        return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())}T` +
+               `${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}:${pad(jst.getUTCSeconds())}.` +
+               `${pad(jst.getUTCMilliseconds(), 3)}+09:00`;
+    }
+
+    // このブラウザ（端末）を識別する簡単なラベル（OS種別＋ランダム4桁、個人情報は含まない）
+    function getDeviceLabel() {
+        let label = localStorage.getItem('deviceLabel');
+        if (!label) {
+            const ua = navigator.userAgent;
+            const isAndroid = /Android/i.test(ua);
+            const isMac = !isAndroid && /Macintosh|Mac OS X/i.test(ua);
+            const isWindows = !isAndroid && /Windows/i.test(ua);
+            const osLabel = isAndroid ? 'Android' : isMac ? 'Mac' : isWindows ? 'Windows' : 'Device';
+            const randomSuffix = Math.random().toString(16).slice(2, 6).toUpperCase();
+            label = `${osLabel}-${randomSuffix}`;
+            localStorage.setItem('deviceLabel', label);
+        }
+        return label;
+    }
+
+    // .blanks.json の内容（app/version/fileName/duration/generatedAt/intervals/position/updated/device）を
+    // 読み込んで、ブランクスキップと再生位置の両方に反映する。
+    function applyLoadedBlanksData(data, myFileName) {
+        if (!data || typeof data !== 'object') {
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        blanksFileData = data;
+        blankIntervals = Array.isArray(data.intervals) ? data.intervals.filter(
+            iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start
+        ) : [];
+        blankLocalDone = true;
+        updateBlankUI('done');
+
+        // 再生位置の反映（updatedのタイムスタンプで新旧比較。「後勝ち」方式）
+        if (typeof data.position === 'number' && data.updated) {
+            const rawLocal = localStorage.getItem(`resume_${myFileName}`);
+            let localRecord = null;
+            try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
+
+            const cloudUpdatedMs = new Date(data.updated).getTime();
+            const localUpdatedMs = localRecord ? localRecord.updatedAt : 0;
+
+            if (!localRecord || cloudUpdatedMs > localUpdatedMs) {
+                localStorage.setItem(`resume_${myFileName}`, JSON.stringify({ position: data.position, updatedAt: cloudUpdatedMs }));
+
+                // ユーザー自身がまだ手動でシークしていなければ、他デバイスでの続きの位置に合わせる
+                if (!userSeekedSinceLoad && data.position > 0) {
+                    audioPlayer.currentTime = data.position;
+                    resumeStatus.textContent = '前回位置から再開（_JSON同期）';
+                    setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+                }
+                console.log(`[_JSON] position読み込み・適用: ${data.position.toFixed(1)}秒 (更新: ${data.updated} / ${data.device || '不明'})`);
+            } else {
+                console.log(`[_JSON] ローカルの方が新しいため再生位置は適用せず`);
             }
 
-            if (!data || !Array.isArray(data.intervals)) {
-                console.log('JSON読み込み失敗（形式が正しくありません）', file.name);
-                return;
-            }
-            if (!currentFileName) {
-                return;
-            }
-            if (data.fileName && normalizeFileNameForCompare(data.fileName) !== normalizeFileNameForCompare(currentFileName)) {
-                console.log(`JSONが違います: 読込み中の音声=${currentFileName} / JSON対象=${data.fileName}`);
-                return;
-            }
-
-            const intervals = data.intervals.filter(
-                iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start
-            );
-
-            blankScanToken++;
-            blankLocalDone = true;
-            blankIntervals = intervals;
-            updateBlankUI('done');
-        };
-        reader.onerror = () => {
-            console.log('JSONファイルの読み込みに失敗しました', file.name);
-        };
-        reader.readAsText(file);
+            updatePositionStatus('loaded');
+            const myToken = blankScanToken;
+            setTimeout(() => {
+                if (myToken === blankScanToken) updatePositionStatus('recording');
+            }, 2500);
+        } else {
+            // position情報を含まない旧形式ファイル。今後の一時停止/自動保存から記録を開始する
+            updatePositionStatus('recording');
+        }
     }
 
     // ----------------------------------------------------
@@ -752,7 +878,9 @@
     }
 
     async function verifyDirPermission(handle, allowPrompt) {
-        const opts = { mode: 'read' };
+        // readwrite で統一する。.blanks.json への position 書き込み・新規作成に必要なため
+        // （readwriteの許可は読み取りも内包する）。
+        const opts = { mode: 'readwrite' };
         try {
             if (allowPrompt) {
                 return (await handle.requestPermission(opts)) === 'granted';
@@ -793,7 +921,7 @@
     async function requestAudioDirHandleFromGesture() {
         if (cachedAudioDirHandle) {
             try {
-                if ((await cachedAudioDirHandle.requestPermission({ mode: 'read' })) === 'granted') {
+                if ((await cachedAudioDirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') {
                     console.log(`[_JSON自動探索] 許可を再確認: "${cachedAudioDirHandle.name}"`);
                     return cachedAudioDirHandle;
                 }
@@ -802,7 +930,7 @@
             }
         }
         try {
-            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'read' });
+            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'readwrite' });
             console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
             cachedAudioDirHandle = handle;
             idbSet('audioDirHandle', handle);
@@ -833,10 +961,11 @@
         console.log('[_JSON自動探索] フォルダのアクセス許可をリセットしました。次回タップした時に再度選択できます。');
     }
 
-    // ブランクステータス表示のタップ／長押しの使い分け：
-    // ・短いタップ: 「JSON不検出」等のときに、その場でフォルダへのアクセスを要求し、見つかれば適用する
+    // タップ／長押しの共通セットアップ：
+    // ・短いタップ: その場でフォルダへのアクセスを要求し（未許可なら）、見つかれば/作成できれば適用する
     // ・長押し: 保存済みのフォルダ許可をリセットする（誤ったフォルダを選んでしまった場合の救済）
-    (function setupBlankStatusInteractions() {
+    // ブランク表示・再生位置表示のどちらをタップしても、同じ_JSONフォルダに対する処理なので同じ動作にする。
+    function setupStatusTapAndHold(hitElement, onResetMessage) {
         let pressTimer = null;
         let longPressFired = false;
         const LONG_PRESS_MS = 800;
@@ -850,7 +979,8 @@
                 if (ok) {
                     await resetAudioDirHandle();
                     updateBlankUI('idle');
-                    blankStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
+                    updatePositionStatus('checking');
+                    onResetMessage();
                 }
             }, LONG_PRESS_MS);
         }
@@ -861,88 +991,193 @@
             }
         }
 
-        blankStatusHit.addEventListener('mousedown', start);
-        blankStatusHit.addEventListener('mouseup', cancelTimer);
-        blankStatusHit.addEventListener('mouseleave', cancelTimer);
-        blankStatusHit.addEventListener('touchstart', start, { passive: true });
-        blankStatusHit.addEventListener('touchend', cancelTimer);
-        blankStatusHit.addEventListener('touchmove', cancelTimer);
+        hitElement.addEventListener('mousedown', start);
+        hitElement.addEventListener('mouseup', cancelTimer);
+        hitElement.addEventListener('mouseleave', cancelTimer);
+        hitElement.addEventListener('touchstart', start, { passive: true });
+        hitElement.addEventListener('touchend', cancelTimer);
+        hitElement.addEventListener('touchmove', cancelTimer);
 
-        blankStatusHit.addEventListener('click', async () => {
+        hitElement.addEventListener('click', async () => {
             if (longPressFired) { longPressFired = false; return; } // 長押し操作直後のclickは無視
             if (!currentFileName) return;
-            if (blankUIState !== 'notfound' && blankUIState !== 'unsupported') return;
             if (!FS_ACCESS_SUPPORTED) return;
+            // 既に正常に動作中（ブランク検出済み かつ 記録中）なら、タップは無視してよい
+            if (blankUIState === 'done' && positionUIState === 'recording') return;
 
             // ここが起点：一切のawaitを挟まずshowDirectoryPicker/requestPermissionを直接呼ぶ
             const myToken = blankScanToken;
-            const dirHandle = await requestAudioDirHandleFromGesture();
-            if (myToken !== blankScanToken) return; // その間に別ファイルへ切り替わっていたら無視
-            if (!dirHandle) {
-                updateBlankUI('notfound');
-                return;
-            }
-            const found = await searchAndLoadBlankJSONFromDir(dirHandle);
-            if (myToken !== blankScanToken) return;
-            if (!found) updateBlankUI('notfound');
+            await loadOrCreateBlanksFile(currentFileName, myToken, true);
         });
-    })();
+    }
 
-    // 指定されたフォルダハンドル内の「_JSON」フォルダから、再生中の音声と同名のJSONを探して自動適用する。
-    // 見つかって読み込めた場合は true、見つからない場合は false を返す。
-    async function searchAndLoadBlankJSONFromDir(dirHandle) {
-        if (!dirHandle || !currentFileName) return false;
+    setupStatusTapAndHold(blankStatusHit, () => {
+        blankStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
+    });
+    setupStatusTapAndHold(positionStatusHit, () => {
+        positionStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
+    });
+
+    // 指定フォルダの「_JSON」内から <ファイル名>.blanks.json を探して読み込む。
+    // 見つからず、かつ書き込み権限があれば、無音検出結果なしの新規ファイルを作成する。
+    // forceGesture=true のときだけ、フォルダ未許可ならその場でダイアログを出す（タップ起点でのみ使用）。
+    async function loadOrCreateBlanksFile(myFileName, myToken, forceGesture) {
+        if (!FS_ACCESS_SUPPORTED) {
+            updateBlankUI('unsupported');
+            updatePositionStatus('unsupported');
+            return;
+        }
+
+        const dirHandle = forceGesture
+            ? await requestAudioDirHandleFromGesture()
+            : await getAudioDirHandleSilently();
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (!dirHandle) {
+            updateBlankUI('notfound');
+            updatePositionStatus('nofolder');
+            return;
+        }
 
         let jsonDirHandle;
         try {
-            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON');
+            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON', { create: true });
         } catch (e) {
-            console.log(`[_JSON自動探索] "${dirHandle.name}" の直下に "_JSON" フォルダが見つかりません。選択したフォルダが正しいか確認してください。`);
-            return false; // _JSONフォルダが存在しない
+            console.log(`[_JSON] "${dirHandle.name}" 内に "_JSON" フォルダを作成/取得できません`, e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
         }
 
-        const audioBase = currentFileName.replace(/\.[^/.]+$/, '');
-        const candidates = [
-            normalizeFileNameForCompare(`${audioBase}.blanks.json`),
-            normalizeFileNameForCompare(`${currentFileName}.json`),
-            normalizeFileNameForCompare(`${audioBase}.json`)
-        ];
+        const audioBase = myFileName.replace(/\.[^/.]+$/, '');
+        const targetName = normalizeFileNameForCompare(`${audioBase}.blanks.json`);
 
+        let matchedHandle = null;
         try {
-            const seenNames = [];
             for await (const [name, handle] of jsonDirHandle.entries()) {
                 if (handle.kind !== 'file') continue;
-                seenNames.push(name);
-                if (candidates.includes(normalizeFileNameForCompare(name))) {
-                    const file = await handle.getFile();
-                    console.log(`[_JSON自動探索] 一致するJSONを発見: "${name}"`);
-                    importBlankJSON(file);
-                    return true;
+                if (normalizeFileNameForCompare(name) === targetName) {
+                    matchedHandle = handle;
+                    break;
                 }
             }
-            console.log(`[_JSON自動探索] "_JSON"フォルダ内に一致するファイルなし。探した名前: ${candidates.join(' / ')} 実際にあったファイル: ${seenNames.join(', ') || '(なし)'}`);
         } catch (e) {
-            console.log('[_JSON自動探索] "_JSON"フォルダの読み取りに失敗', e);
-            return false;
+            console.log('[_JSON] フォルダの読み取りに失敗', e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
         }
-        return false;
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (matchedHandle) {
+            let data;
+            try {
+                const file = await matchedHandle.getFile();
+                data = JSON.parse(await file.text());
+            } catch (e) {
+                console.log('[_JSON] blanks.jsonの読み込み/解析に失敗', e);
+                updateBlankUI('notfound');
+                updatePositionStatus('error');
+                return;
+            }
+            if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+            console.log(`[_JSON] blanks.jsonを発見・読込み: "${matchedHandle.name}"`);
+            applyLoadedBlanksData(data, myFileName);
+            return;
+        }
+
+        // 見つからない場合：書き込み権限があれば、検出結果なしの新規ファイルを作成する
+        console.log(`[_JSON] 一致するblanks.jsonなし。新規作成を試みます（対象: ${audioBase}.blanks.json）`);
+        const hasWrite = await verifyDirPermission(dirHandle, false);
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (!hasWrite) {
+            updateBlankUI('notfound');
+            updatePositionStatus('nofolder');
+            return;
+        }
+
+        const newData = {
+            app: 'RadikoPWA-BlankDetector',
+            version: 2,
+            fileName: myFileName,
+            duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
+            generatedAt: new Date().toISOString(),
+            intervals: []
+            // position/updated/deviceはここでは書かない。実際に一時停止/自動保存が
+            // 起きるまでは「position情報なし」として扱い、他デバイスの正当な再生位置を
+            // 「作りたてのposition:0」で誤って上書きしてしまわないようにするため。
+        };
+
+        try {
+            const fileHandle = await jsonDirHandle.getFileHandle(`${audioBase}.blanks.json`, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(newData, null, 2));
+            await writable.close();
+            console.log(`[_JSON] blanks.jsonを新規作成: ${audioBase}.blanks.json`);
+        } catch (e) {
+            console.log('[_JSON] blanks.json新規作成に失敗', e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        blanksFileData = newData;
+        blankIntervals = [];
+        blankLocalDone = true;
+        updateBlankUI('notfound'); // 検出結果自体はまだ無い
+        updatePositionStatus('recording');
     }
 
-    // 音声ファイル選択直後に呼ぶ自動チェック（サイレント版）。
-    // 既に許可済みのフォルダがあれば探しに行き、無ければダイアログは出さず'notfound'系の
-    // 表示に落ち着く（そこからはブランクステータスのタップで許可できる）。
-    function kickOffAutoLoadForFile(myFileName, myToken) {
-        if (!FS_ACCESS_SUPPORTED) return Promise.resolve(false);
-        return (async () => {
-            try {
-                const dirHandle = await getAudioDirHandleSilently();
-                if (myToken !== blankScanToken || currentFileName !== myFileName) return false;
-                if (!dirHandle) return false;
-                return await searchAndLoadBlankJSONFromDir(dirHandle);
-            } catch (e) {
-                return false;
-            }
-        })();
+    // _JSON/<ファイル名>.blanks.json の position/updated/device を更新して書き戻す。
+    // 既存のintervals等は保持する。一時停止時、および再生中10秒おきに呼ばれる。
+    // 書き込み権限が無ければプロンプトは出さず静かに諦める（スリープタイマー由来の一時停止など
+    // ユーザー操作を伴わないタイミングで発火することもあるため）。
+    async function writePositionUpdate(position) {
+        if (!FS_ACCESS_SUPPORTED || !currentFileName) return;
+        if (!cachedAudioDirHandle) return;
+
+        try {
+            const hasWrite = await verifyDirPermission(cachedAudioDirHandle, false);
+            if (!hasWrite) return;
+
+            const jsonDirHandle = await cachedAudioDirHandle.getDirectoryHandle('_JSON', { create: true });
+            const audioBase = currentFileName.replace(/\.[^/.]+$/, '');
+            const fileHandle = await jsonDirHandle.getFileHandle(`${audioBase}.blanks.json`, { create: true });
+
+            const base = blanksFileData || {
+                app: 'RadikoPWA-BlankDetector',
+                version: 2,
+                fileName: currentFileName,
+                duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
+                generatedAt: new Date().toISOString(),
+                intervals: blankIntervals || []
+            };
+
+            const payload = {
+                ...base,
+                fileName: currentFileName,
+                intervals: blankIntervals || base.intervals || [],
+                position: position,
+                updated: toJSTISOString(new Date()),
+                device: getDeviceLabel()
+            };
+
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(payload, null, 2));
+            await writable.close();
+
+            blanksFileData = payload;
+            updatePositionStatus('recording');
+            console.log(`[_JSON] position更新: ${position.toFixed(1)}秒`);
+        } catch (e) {
+            console.log('[_JSON] position書き込みエラー', e);
+            updatePositionStatus('error');
+        }
     }
 
     fileInput.addEventListener('change', function(e) {
@@ -954,22 +1189,23 @@
         hpBtn.classList.add('disabled');
         resumeStatus.textContent = ""; 
         lyricsOverlay.classList.remove('active'); 
+        userSeekedSinceLoad = false;
+        lastDiskSavedTime = 0;
+        blanksFileData = null;
 
         // このファイル読み込みセッションの識別子（別ファイルへの切り替え時に古い非同期処理を無視するため）
         const fileToken = ++blankScanToken;
 
         blankIntervals = [];
-        updateBlankUI('idle'); // "確認中…"
+        updateBlankUI('idle');           // "確認中…"
+        updatePositionStatus('checking'); // "確認中…"
 
         // _JSONフォルダの自動探索は、ファイル選択という「ユーザー操作」の直後、できるだけ早いタイミングで
-        // 開始する（フォルダの許可が必要な場合、ここで許可ダイアログが出ることがある）。
-        // 見つかった場合はkickOffAutoLoadForFile内部でimportBlankJSON→updateBlankUI('done')まで完了する。
-        kickOffAutoLoadForFile(file.name, fileToken).then((found) => {
-            if (fileToken !== blankScanToken) return; // 別ファイルへ切り替わっていたら無視
-            if (!found) {
-                updateBlankUI(FS_ACCESS_SUPPORTED ? 'notfound' : 'unsupported');
-            }
-        });
+        // 開始する。ただしここは silent（フォルダ未許可ならダイアログを出さない）。
+        // ファイル選択のchangeイベントから直接showDirectoryPickerを呼ぶと、Android/macOSともに
+        // 「ユーザー操作起因ではない」と判定されてしまうことが確認されているため。
+        // 未許可の場合は「タップで許可」の表示になり、ブランク/再生位置どちらかのテキストをタップすれば許可できる。
+        loadOrCreateBlanksFile(file.name, fileToken, false);
 
         jsmediatags.read(file, {
             onSuccess: function(tag) {
@@ -1089,9 +1325,15 @@
         seekBar.value = current;
         refreshBlankNav();
 
-        // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する
+        // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する（ローカル）
         if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
             saveResumePosition(current);
+        }
+
+        // _JSON/*.blanks.json への書き込みは10秒おきに間引く（Dropbox等への同期負荷を抑えるため）
+        if (currentFileName && current > 0 && Math.abs(current - lastDiskSavedTime) >= DISK_SAVE_INTERVAL) {
+            lastDiskSavedTime = current;
+            writePositionUpdate(current);
         }
     });
 
@@ -1125,6 +1367,7 @@
         playBtn.innerHTML = svgPlay;
         playBtn.classList.remove('playing');
         saveResumePosition(audioPlayer.currentTime);
+        writePositionUpdate(audioPlayer.currentTime);
     });
 
     audioPlayer.addEventListener('ended', () => {
@@ -1254,23 +1497,27 @@
     rewindBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+        userSeekedSinceLoad = true;
     });
 
     forwardBtn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+        userSeekedSinceLoad = true;
     });
 
     rewind30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
+        userSeekedSinceLoad = true;
     });
 
     forward30Btn.addEventListener('click', () => {
         if (!audioPlayer.src) return;
         const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
         audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
+        userSeekedSinceLoad = true;
     });
 
     // ----------------------------------------------------
