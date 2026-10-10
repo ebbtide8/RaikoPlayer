@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.3.0</title>
+    <title>Radio Player PWA - 2.4.0</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -252,6 +252,15 @@
         #talk-enhance-status.level-high {
             color: #ff9800;
         }
+        #talk-enhance-status {
+            min-width: 58px;   /* 「High Auto」でも他のボタンの位置がずれないように */
+            text-align: left;
+            white-space: nowrap;
+        }
+        #talk-enhance-btn.auto-music svg,
+        #talk-enhance-status.auto-music {
+            opacity: 0.5;      /* Auto中、音楽部分でOFFになっている間 */
+        }
 
         /* ブランク（無音）スキップ */
         .blank-row {
@@ -482,7 +491,7 @@
             <input type="file" id="audio-file" accept="audio/*">
         </label>
 
-        <div class="icon-btn sleep-combo" id="talk-enhance-btn" title="トーク強調（クリックで切替: OFF→Low→High）">
+        <div class="icon-btn sleep-combo" id="talk-enhance-btn" title="トーク強調（クリックで切替: OFF→Low→Low Auto→High→High Auto）">
             <svg viewBox="0 0 24 24">
                 <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zm12-16v16h4V4h-4z"/>
             </svg>
@@ -503,7 +512,7 @@
         </div>
     </div>
 
-    <div class="version-tag">v2.3.0</div>
+    <div class="version-tag">v2.4.0</div>
 
     <audio id="audio-player" style="display: none;"></audio>
 
@@ -570,6 +579,8 @@
     let blankScanToken = 0;       // ファイル切り替え時に古い非同期処理の結果を無視するためのトークン
     let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか
     let blanksFileData = null;    // 現在のファイルの.blanks.json全体（app/version/fileName/duration/generatedAt/intervals等）
+    let musicIntervals = [];       // .blanks.json の musicIntervals（音楽部分）。トーク強調Autoで「OFFにする区間」として使用
+    let talkIntervals = [];        // .blanks.json の talkIntervals（トーク部分）。情報用（Autoは musicIntervals 以外をトークとして扱う）
                                    // position更新時に、既存の内容を保ったまま書き戻すために保持しておく
     let positionUIState = 'idle'; // 再生位置ステータス表示の現在の状態
 
@@ -794,6 +805,13 @@
         ) : [];
         blankLocalDone = true;
         updateBlankUI('done');
+
+        // トーク/音楽の区間（イコライザ自動切替用）
+        const validIv = iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start;
+        musicIntervals = Array.isArray(data.musicIntervals) ? data.musicIntervals.filter(validIv) : [];
+        talkIntervals = Array.isArray(data.talkIntervals) ? data.talkIntervals.filter(validIv) : [];
+        console.log(`[EQ] 音楽区間 ${musicIntervals.length}件 / トーク区間 ${talkIntervals.length}件`);
+        refreshTalkEnhanceAuto();
 
         // 再生位置の反映（updatedのタイムスタンプで新旧比較。「後勝ち」方式）
         if (typeof data.position === 'number' && data.updated) {
@@ -1142,6 +1160,10 @@
         if (!cachedAudioDirHandle) return;
 
         try {
+            // .blanks.json の読み込み（または新規作成）が完了していない間は書き込まない。
+            // 未読込みのまま書くと、既存のintervals/musicIntervals/talkIntervalsを空で上書きしてしまうため。
+            if (!blanksFileData) return;
+
             const hasWrite = await verifyDirPermission(cachedAudioDirHandle, false);
             if (!hasWrite) return;
 
@@ -1149,14 +1171,7 @@
             const audioBase = currentFileName.replace(/\.[^/.]+$/, '');
             const fileHandle = await jsonDirHandle.getFileHandle(`${audioBase}.blanks.json`, { create: true });
 
-            const base = blanksFileData || {
-                app: 'RadikoPWA-BlankDetector',
-                version: 2,
-                fileName: currentFileName,
-                duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
-                generatedAt: new Date().toISOString(),
-                intervals: blankIntervals || []
-            };
+            const base = blanksFileData;
 
             const payload = {
                 ...base,
@@ -1192,6 +1207,8 @@
         userSeekedSinceLoad = false;
         lastDiskSavedTime = 0;
         blanksFileData = null;
+        musicIntervals = [];
+        talkIntervals = [];
 
         // このファイル読み込みセッションの識別子（別ファイルへの切り替え時に古い非同期処理を無視するため）
         const fileToken = ++blankScanToken;
@@ -1324,6 +1341,7 @@
         updateSeekBarVisual(current, audioPlayer.duration);
         seekBar.value = current;
         refreshBlankNav();
+        refreshTalkEnhanceAuto();
 
         // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する（ローカル）
         if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
@@ -1357,6 +1375,8 @@
         if (audioPlayer.paused) audioPlayer.play();
         else audioPlayer.pause();
     });
+
+    audioPlayer.addEventListener('seeked', () => refreshTalkEnhanceAuto());
 
     audioPlayer.addEventListener('play', () => {
         playBtn.innerHTML = svgPause;
@@ -1418,7 +1438,20 @@
     let talkMediaSource = null;
     let talkLowCutFilter = null;
     let talkSpeechFilter = null;
-    let talkEnhanceLevel = 'off'; // 'off' | 'low' | 'high'
+    // モード: OFF → Low → Low Auto → High → High Auto
+    //  ・Low / High      : 常にそのレベルで強調（手動）
+    //  ・Low Auto / High Auto : .blanks.json の musicIntervals（音楽部分）ではOFF、それ以外（トーク部分）ではLow/High
+    //    ※ musicIntervals が無い（未検出の）ファイルでは、Autoでも常にトーク扱い（＝Low/Highのまま）になる
+    const TALK_MODES = {
+        off:      { base: 'off',  auto: false, label: 'OFF' },
+        low:      { base: 'low',  auto: false, label: 'Low' },
+        lowauto:  { base: 'low',  auto: true,  label: 'Low Auto' },
+        high:     { base: 'high', auto: false, label: 'High' },
+        highauto: { base: 'high', auto: true,  label: 'High Auto' }
+    };
+    const TALK_MODE_ORDER = ['off', 'low', 'lowauto', 'high', 'highauto'];
+    let talkEnhanceMode = 'off';
+    let talkAppliedLevel = null; // 実際にフィルターへ適用中のレベル（'off' | 'low' | 'high'）
 
     const TALK_PEAK_FREQ = 2000;    // 中心周波数 2kHz（声の明瞭度に効く帯域、レベル共通）
     const TALK_PEAK_Q = 1.0;
@@ -1426,11 +1459,9 @@
     // レベルごとの設定。段階が上がるほど低音カットを強め、ブースト量を増やす。
     const TALK_LEVELS = {
         off:  { highpass: 20,  peakGain: 0.0 },  // 事実上無効化
-        low:  { highpass: 150, peakGain: 5.0 },  // これまでのオン相当
-        high: { highpass: 220, peakGain: 9.0 }   // さらに声を強調
+        low:  { highpass: 150, peakGain: 5.0 },
+        high: { highpass: 220, peakGain: 9.0 }
     };
-    const TALK_LEVEL_ORDER = ['off', 'low', 'high'];
-    const TALK_LEVEL_LABEL = { off: 'OFF', low: 'Low', high: 'High' };
 
     function ensureTalkAudioGraph() {
         if (talkAudioCtx) return true;
@@ -1462,33 +1493,68 @@
         }
     }
 
-    function setTalkEnhanceLevel(level) {
+    function isInIntervals(list, t) {
+        for (let i = 0; i < list.length; i++) {
+            if (t >= list[i].start && t < list[i].end) return true;
+        }
+        return false;
+    }
+
+    // 現在の再生位置で実際に適用すべきレベルを返す
+    function getEffectiveTalkLevel() {
+        const m = TALK_MODES[talkEnhanceMode];
+        if (!m.auto) return m.base;
+        return isInIntervals(musicIntervals, audioPlayer.currentTime || 0) ? 'off' : m.base;
+    }
+
+    function updateTalkUI() {
+        const m = TALK_MODES[talkEnhanceMode];
+        talkEnhanceStatus.textContent = m.label;
+
+        for (const el of [talkEnhanceBtn, talkEnhanceStatus]) {
+            el.classList.remove('level-low', 'level-high', 'auto-music');
+            if (m.base === 'low') el.classList.add('level-low');
+            if (m.base === 'high') el.classList.add('level-high');
+            // Auto中で、いま音楽部分のためOFFになっている間は少し薄く表示する
+            if (m.auto && talkAppliedLevel === 'off') el.classList.add('auto-music');
+        }
+    }
+
+    function applyTalkLevel(level) {
+        if (!talkAudioCtx) return;
+        talkAppliedLevel = level;
+        const cfg = TALK_LEVELS[level];
+        const now = talkAudioCtx.currentTime;
+        talkLowCutFilter.frequency.setTargetAtTime(cfg.highpass, now, 0.05);
+        talkSpeechFilter.gain.setTargetAtTime(cfg.peakGain, now, 0.05);
+    }
+
+    // Autoモード中、再生位置（timeupdate/seeked）に応じて切り替える。レベルが変わった時だけ処理する。
+    function refreshTalkEnhanceAuto() {
+        if (!talkAudioCtx) return;
+        if (!TALK_MODES[talkEnhanceMode].auto) return;
+        const eff = getEffectiveTalkLevel();
+        if (eff !== talkAppliedLevel) {
+            applyTalkLevel(eff);
+            updateTalkUI();
+        }
+    }
+
+    function setTalkEnhanceMode(mode) {
         if (!ensureTalkAudioGraph()) return; // 非対応環境では何もしない
 
         if (talkAudioCtx.state === 'suspended') {
             talkAudioCtx.resume().catch(() => {});
         }
 
-        talkEnhanceLevel = level;
-        const cfg = TALK_LEVELS[level];
-        const now = talkAudioCtx.currentTime;
-        talkLowCutFilter.frequency.setTargetAtTime(cfg.highpass, now, 0.05);
-        talkSpeechFilter.gain.setTargetAtTime(cfg.peakGain, now, 0.05);
-
-        talkEnhanceBtn.classList.remove('level-low', 'level-high');
-        if (level === 'low') talkEnhanceBtn.classList.add('level-low');
-        if (level === 'high') talkEnhanceBtn.classList.add('level-high');
-
-        talkEnhanceStatus.textContent = TALK_LEVEL_LABEL[level];
-        talkEnhanceStatus.classList.remove('level-low', 'level-high');
-        if (level === 'low') talkEnhanceStatus.classList.add('level-low');
-        if (level === 'high') talkEnhanceStatus.classList.add('level-high');
+        talkEnhanceMode = mode;
+        applyTalkLevel(getEffectiveTalkLevel());
+        updateTalkUI();
     }
 
     talkEnhanceBtn.addEventListener('click', () => {
-        const idx = TALK_LEVEL_ORDER.indexOf(talkEnhanceLevel);
-        const next = TALK_LEVEL_ORDER[(idx + 1) % TALK_LEVEL_ORDER.length];
-        setTalkEnhanceLevel(next);
+        const idx = TALK_MODE_ORDER.indexOf(talkEnhanceMode);
+        setTalkEnhanceMode(TALK_MODE_ORDER[(idx + 1) % TALK_MODE_ORDER.length]);
     });
 
     // ----------------------------------------------------
