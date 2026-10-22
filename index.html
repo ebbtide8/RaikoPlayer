@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Radio Player PWA - 2.4.0</title>
+    <title>Radio Player PWA - 2.4.1</title>
     <link rel="manifest" href="./manifest.json">
     <meta name="theme-color" content="#1f6aa5">
 
@@ -512,7 +512,7 @@
         </div>
     </div>
 
-    <div class="version-tag">v2.4.0</div>
+    <div class="version-tag">v2.4.1</div>
 
     <audio id="audio-player" style="display: none;"></audio>
 
@@ -613,6 +613,40 @@
             audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
         }
     });
+
+    // ----------------------------------------------------
+    // 通知欄・ロック画面のプレーヤー表示（Media Session API）
+    // 背景＝番組画像（アートワーク）、太字＝Titleタグ、細字＝Artistタグ
+    // ----------------------------------------------------
+    let mediaArtworkUrl = null;
+
+    function updateMediaSession(title, artist, picture) {
+        if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+        try {
+            if (mediaArtworkUrl) {
+                URL.revokeObjectURL(mediaArtworkUrl);
+                mediaArtworkUrl = null;
+            }
+
+            let artwork = [];
+            if (picture && picture.data && picture.data.length) {
+                const type = picture.format || 'image/jpeg';
+                mediaArtworkUrl = URL.createObjectURL(new Blob([new Uint8Array(picture.data)], { type }));
+                artwork = [{ src: mediaArtworkUrl, sizes: '512x512', type }];
+            } else {
+                // 番組画像が無い場合は、アプリのアイコンを代わりに使う
+                artwork = [{ src: new URL('icon.png', location.href).href, sizes: '192x192', type: 'image/png' }];
+            }
+
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: title || '',
+                artist: artist || '',
+                artwork
+            });
+        } catch (e) {
+            console.log('[MediaSession] 通知欄の表示設定に失敗しました', e);
+        }
+    }
 
     function formatTime(seconds) {
         if (isNaN(seconds)) return "00:00";
@@ -1280,6 +1314,8 @@
                 }
                 // ----------------------------------------------------
 
+                updateMediaSession(tags.title || file.name, tags.artist || '', tags.picture || null);
+
                 if (tags.picture) {
                     const { data, format } = tags.picture;
                     let base64String = "";
@@ -1295,6 +1331,7 @@
             },
             onError: function() {
                 trackTitle.textContent = file.name;
+                updateMediaSession(file.name, '', null);
                 coverArt.style.backgroundImage = "none";
                 coverArt.textContent = "[No Cover]";
                 lyricsContent.textContent = "タグの読み込みエラー。";
