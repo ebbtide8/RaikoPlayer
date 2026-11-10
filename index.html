@@ -1,198 +1,1689 @@
 <!DOCTYPE html>
-<html lang="ja"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>家計簿</title><link rel="icon" href="data:,">
-<style>
-:root{--bg:#f4f5f6;--card:#fff;--tx:#1a1a1a;--red:#d12c2c;--gray:#6b7280;--gl:#e5e7eb;--g:#2f9e5b;--h:#2b6cb0;--w:#dd7a1f;--hb:#e6effa;--wb:#fdf0e2;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#15171a;--card:#202327;--tx:#f0f0f0;--red:#ff6b6b;--gray:#9aa1ab;--gl:#33383e;--hb:#1c2a3b;--wb:#3a2a19;color-scheme:dark}}
-*{box-sizing:border-box}html,body{height:100%;margin:0}
-body{background:var(--bg);color:var(--tx);font:15px/1.4 "Hiragino Sans","Noto Sans JP",system-ui,sans-serif;display:flex;flex-direction:column;overflow:hidden}
-#top{padding:10px 14px 6px;text-align:center}
-#top small{color:var(--gray)}#total{font-size:24px;font-weight:700;line-height:1.2}
-.neg{color:var(--red)}
-#bar{display:flex;gap:8px;justify-content:center;margin-top:4px}
-button{font:inherit;cursor:pointer}
-.sm{background:var(--gl);color:var(--tx);border:0;border-radius:8px;padding:5px 10px;font-size:13px}
-#cols{flex:1;display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 8px;overflow-y:auto;align-content:start}
-.col{background:var(--card);border-radius:12px;padding:10px;min-width:0}
-.col.h{border-top:5px solid var(--h)}.col.w{border-top:5px solid var(--w)}
-.who{display:flex;align-items:center;gap:8px;font-weight:700;margin-bottom:6px}
-.h .who{color:var(--h)}.w .who{color:var(--w)}
-.ic{width:34px;height:34px;border-radius:50%;background:var(--gl);object-fit:cover;flex:none;display:grid;place-items:center;overflow:hidden;border:0;padding:0;font-size:14px;color:var(--gray)}
-.ic.s{width:26px;height:26px;font-size:11px}
-.ic img{width:100%;height:100%;object-fit:cover}
-.acc{display:flex;align-items:center;gap:10px;width:100%;border-bottom:1px solid var(--gl);padding:8px 4px;color:var(--tx);cursor:pointer;border-radius:6px}
-.acc:hover{background:var(--gl)}
-.acc .n{font-size:13px;color:var(--gray)}
-.acc .tx{min-width:0;flex:1}
-.acc .v{font-size:19px;font-weight:600;text-align:right;font-variant-numeric:tabular-nums}
-.ic[data-ic]{cursor:pointer;outline:2px dashed var(--gray)}
-.acc .v[data-init]{text-decoration:underline dashed;cursor:pointer}
-#total{cursor:pointer}
-.h .acc .n b,.w .acc .n b{font-weight:400}
-input.nm{font:inherit;width:100%;min-width:0;border:1px solid var(--gl);border-radius:6px;padding:3px 6px;background:var(--bg);color:var(--tx)}
-.sync{display:flex;align-items:center;justify-content:space-between;gap:4px;margin-top:8px;font-size:11px;color:var(--gray)}
-.sync.warn{color:var(--tx);background:var(--gl);border-radius:6px;padding:4px}
-#add{margin:8px;padding:16px;border:0;border-radius:12px;background:var(--g);color:#fff;font-size:18px;font-weight:700;width:calc(100% - 16px)}
-#foot{padding-bottom:env(safe-area-inset-bottom,0px)}
-.dlg{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;align-items:flex-end;justify-content:center;z-index:5}
-.dlg.on{display:flex}
-.sheet{background:var(--card);width:100%;max-width:520px;max-height:92%;overflow-y:auto;border-radius:16px 16px 0 0;padding:14px 14px calc(14px + env(safe-area-inset-bottom,0px))}
-.sheet h2{margin:0 0 10px;font-size:17px}
-label{display:block;font-size:12px;color:var(--gray);margin:10px 0 3px}
-select,input[type=date],input[type=number],input[type=text]{width:100%;font:inherit;padding:9px;border:1px solid var(--gl);border-radius:8px;background:var(--bg);color:var(--tx)}
-.seg{display:flex;gap:6px}.seg button{flex:1;padding:9px;border:1px solid var(--gl);border-radius:8px;background:var(--bg);color:var(--tx)}
-.seg button.on{background:var(--g);color:#fff;border-color:var(--g)}
-.seg button.on[data-t="収入"]{background:#000;border-color:var(--tx)}
-.seg button.on[data-t="支出"]{background:#d12c2c;border-color:#d12c2c}
-.ok{width:100%;margin-top:14px;padding:13px;border:0;border-radius:10px;background:var(--g);color:#fff;font-weight:700;font-size:16px}
-.cl{background:var(--gl);color:var(--tx);margin-top:8px}
-.row{display:flex;justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--gl)}
-.row small{display:block;color:var(--gray)}
-.row.fut{opacity:.7}
-.row[data-tx]{cursor:pointer;border-radius:6px;padding-left:4px;padding-right:4px}
-.row[data-tx]:hover{background:var(--gl)}
-#msg{position:fixed;left:50%;transform:translateX(-50%);bottom:90px;background:var(--gray);color:#fff;padding:8px 14px;border-radius:10px;font-size:13px;display:none;z-index:9;max-width:90%}
-@media (max-width:360px){.acc .v{font-size:16px}}
-</style></head><body>
-<div id="top"><small>2人の合計残高(タップで将来の合計)</small><div id="total">¥ 0</div>
-<div id="bar"><button class="sm" id="edit">名前・口座を編集</button><button class="sm" id="csv">CSV出力</button><button class="sm" id="hide">金額を非表示</button></div></div>
-<div id="cols"><div class="col h" id="ch"></div><div class="col w" id="cw"></div></div>
-<div id="foot"><button id="add">入力</button></div>
-<div class="dlg" id="d1"><div class="sheet" id="s1"></div></div>
-<div class="dlg" id="d2"><div class="sheet" id="s2"></div></div>
-<div id="msg"></div>
-<input type="file" id="file" accept="image/*" hidden>
-<input type="file" id="csvf" accept=".csv,.txt,text/csv" hidden>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Radio Player PWA - 2.4.1</title>
+    <link rel="manifest" href="./manifest.json">
+    <meta name="theme-color" content="#1f6aa5">
+
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="apple-touch-icon" href="favicon.png">
+    
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jsmediatags/3.9.5/jsmediatags.min.js"></script>
+    <style>
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: #1a1a1a;
+            color: #ffffff;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            overflow: hidden;
+        }
+        
+        .player-card {
+            background-color: #2d2d2d;
+            padding: 25px;
+            border-radius: 12px;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+            width: 450px;
+            text-align: center;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        /* メタデータ表示エリア */
+        .meta-container {
+            display: flex;
+            flex-direction: column;
+            background-color: #202020;
+            padding: 15px;
+            border-radius: 8px;
+            margin-bottom: 20px;
+            text-align: left;
+        }
+        
+        .cover-art {
+            width: 100%;
+            height: 200px;
+            background-color: #3a3a3a;
+            border-radius: 6px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            font-size: 14px;
+            color: #888;
+            margin-bottom: 15px;
+            background-size: contain;
+            background-position: center;
+            background-repeat: no-repeat;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+        .cover-art:hover { opacity: 0.8; }
+        
+        .track-info { width: 100%; overflow: hidden; }
+        .track-title {
+            font-size: 18px;
+            font-weight: bold;
+            margin-bottom: 6px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        .track-album, .track-artist {
+            font-size: 14px;
+            color: #aaa;
+            margin-bottom: 4px;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+        }
+        
+        /* レジューム・時間通知 */
+        .status-bar {
+            display: flex;
+            justify-content: space-between;
+            font-size: 12px;
+            margin-bottom: 10px;
+            height: 22px;
+        }
+        .resume-status { color: #2ecc71; }
+        .time-display { color: #aaa; font-family: monospace; font-size: 16px; }
+        
+        /* シークバー（通常の1本） */
+        .seekbar-container {
+            margin-bottom: 20px;
+        }
+        .seek-bar {
+            -webkit-appearance: none;
+            width: 100%;
+            height: 10px;
+            background: #444;
+            border-radius: 4px;
+            outline: none;
+            cursor: pointer;
+            margin: 0;
+        }
+        .seek-bar::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            appearance: none;
+            width: 20px;
+            height: 20px;
+            background: #1f6aa5;
+            border-radius: 50%;
+            cursor: pointer;
+            transition: transform 0.1s;
+        }
+        .seek-bar::-webkit-slider-thumb:hover { transform: scale(1.2); }
+        .seek-bar::-moz-range-thumb {
+            width: 20px;
+            height: 20px;
+            background: #1f6aa5;
+            border-radius: 50%;
+            cursor: pointer;
+            border: none;
+        }
+        .seek-bar {
+            background: linear-gradient(to right, #1f6aa5 0%, #1f6aa5 var(--val, 0%), #444 var(--val, 0%), #444 100%);
+        }
+
+        /* 最下部コントロールバー */
+        .bottom-controls {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 10px;
+            height: 78px;
+            position: relative;
+        }
+        
+        .icon-btn {
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: transform 0.2s, opacity 0.2s;
+            flex-shrink: 0;
+        }
+        .icon-btn:hover { transform: scale(1.1); }
+        .icon-btn svg {
+            width: 24px;
+            height: 24px;
+            fill: #ffffff;
+        }
+        input[type="file"] { display: none; }
+        
+        /* 中央の再生ボタン */
+        .play-btn {
+            width: 56px;
+            height: 56px;
+            background-color: #1f6aa5;
+            border-radius: 50%;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.3);
+            flex-shrink: 0;
+        }
+        .play-btn:hover {
+            background-color: #144d77;
+            transform: scale(1.05);
+        }
+        .play-btn svg {
+            width: 26px;
+            height: 26px;
+            fill: #ffffff;
+            margin-left: 3px;
+        }
+        .play-btn.playing svg {
+            margin-left: 0;
+        }
+
+        /* 早送り・巻き戻しボタン（10秒／30秒） */
+        .skip-btn {
+            flex-direction: column;
+            gap: 3px;
+        }
+        .skip-btn svg {
+            width: 32px;
+            height: 32px;
+        }
+        .skip-label {
+            font-size: 11px;
+            color: #ccc;
+            line-height: 1;
+            user-select: none;
+        }
+
+        /* ファイル読込み・スリープ・HPの行 */
+        .utility-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 0 4px;
+            height: 50px;
+            margin-top: 14px;
+        }
+        .version-tag {
+            text-align: center;
+            font-size: 10px;
+            color: #555;
+            margin-top: 4px;
+            user-select: none;
+        }
+        .utility-row .icon-btn svg {
+            width: 30px;
+            height: 30px;
+        }
+        .utility-row .hp-btn svg {
+            width: 24px;
+            height: 24px;
+        }
+        .sleep-combo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            cursor: pointer;
+            transition: transform 0.2s;
+            font-size: 13px;
+            color: #aaa;
+            margin-left: 28px;
+        }
+        .sleep-combo:hover { transform: scale(1.05); }
+        .icon-btn.active svg {
+            fill: #2ecc71;
+        }
+        #sleep-status.active {
+            color: #2ecc71;
+            font-family: monospace;
+        }
+
+        /* トーク強調（OFF/Low/High） */
+        #talk-enhance-btn.level-low svg {
+            fill: #2ecc71;
+        }
+        #talk-enhance-status.level-low {
+            color: #2ecc71;
+        }
+        #talk-enhance-btn.level-high svg {
+            fill: #ff9800;
+        }
+        #talk-enhance-status.level-high {
+            color: #ff9800;
+        }
+        #talk-enhance-status {
+            min-width: 58px;   /* 「High Auto」でも他のボタンの位置がずれないように */
+            text-align: left;
+            white-space: nowrap;
+        }
+        #talk-enhance-btn.auto-music svg,
+        #talk-enhance-status.auto-music {
+            opacity: 0.5;      /* Auto中、音楽部分でOFFになっている間 */
+        }
+
+        /* ブランク（無音）スキップ */
+        .blank-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            margin-top: 4px;
+            margin-bottom: 14px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .blank-row .blank-nav-btn svg {
+            width: 30px;
+            height: 30px;
+        }
+        .blank-status-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 170px;
+        }
+        #blank-status {
+            text-align: center;
+            pointer-events: none; /* タップ/クリックは重なった透明ボタン側で受け、テキスト選択を防ぐ */
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .blank-status-hit {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            right: -8px;
+            bottom: -8px;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+        .blank-nav-btn.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+        .blank-nav-btn.disabled:hover { transform: scale(1); }
+        #blank-status.ready { color: #2ecc71; }
+
+        /* 再生位置の同期ステータス（再生ボタンの下） */
+        .position-row {
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-top: 2px;
+            margin-bottom: 4px;
+            font-size: 13px;
+            color: #aaa;
+        }
+        .position-status-wrap {
+            position: relative;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            min-width: 170px;
+        }
+        #position-status {
+            text-align: center;
+            pointer-events: none;
+            -webkit-user-select: none;
+            user-select: none;
+        }
+        .position-status-hit {
+            position: absolute;
+            top: -8px;
+            left: -8px;
+            right: -8px;
+            bottom: -8px;
+            background: transparent;
+            border: none;
+            padding: 0;
+            margin: 0;
+            cursor: pointer;
+            -webkit-tap-highlight-color: transparent;
+            -webkit-touch-callout: none;
+            touch-action: manipulation;
+        }
+        #position-status.ready { color: #2ecc71; }
+        #position-status.error { color: #ff5252; }
+
+        /* HPボタン */
+        .hp-btn {
+            opacity: 1;
+        }
+        .hp-btn.disabled {
+            opacity: 0.3;
+            cursor: default;
+        }
+        .hp-btn.disabled:hover { transform: scale(1); }
+
+        /* 歌詞オーバーレイ */
+        .lyrics-overlay {
+            position: absolute;
+            bottom: -100%;
+            left: 0;
+            width: 100%;
+            height: 80%;
+            background-color: rgba(40, 40, 40, 0.95);
+            box-sizing: border-box;
+            padding: 25px;
+            border-top: 2px solid #1f6aa5;
+            transition: bottom 0.3s ease-in-out;
+            text-align: left;
+            display: flex;
+            flex-direction: column;
+            z-index: 10;
+        }
+        .lyrics-overlay.active { bottom: 0; }
+        .lyrics-header {
+            font-size: 14px;
+            font-weight: bold;
+            color: #1f6aa5;
+            margin-bottom: 10px;
+            display: flex;
+            justify-content: space-between;
+            cursor: pointer;
+        }
+        .lyrics-content {
+            flex-grow: 1;
+            overflow-y: auto;
+            font-size: 15px;
+            line-height: 1.6;
+            white-space: pre-wrap;
+            color: #eee;
+            padding-right: 5px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="player-card">
+    
+    <div class="meta-container">
+        <div class="cover-art" id="cover-art" title="クリックで歌詞を表示">[No Cover]</div>
+        <div class="track-info">
+            <div class="track-title" id="track-title">-</div>
+            <div class="track-album" id="track-album">-</div>
+            <div class="track-artist" id="track-artist">-</div>
+        </div>
+    </div>
+    
+    <div class="status-bar">
+        <div class="resume-status" id="resume-status"></div>
+        <div class="time-display" id="time-display">00:00 / 00:00</div>
+    </div>
+    
+    <div class="seekbar-container">
+        <input type="range" class="seek-bar" id="seek-bar" min="0" max="100" value="0" step="0.1">
+    </div>
+
+    <div class="blank-row">
+        <div class="icon-btn blank-nav-btn disabled" id="blank-prev-btn" title="前のブランクへ戻る">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
+        <div class="blank-status-wrap">
+            <span id="blank-status">ブランク検出: 確認中…</span>
+            <button type="button" class="blank-status-hit" id="blank-status-hit" aria-label="ブランク検出の状態（タップで許可/再検索、長押しでリセット）"></button>
+        </div>
+        <div class="icon-btn blank-nav-btn disabled" id="blank-next-btn" title="次のブランクへ進む">
+            <svg viewBox="0 0 24 24">
+                <path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="bottom-controls">
+        <div class="icon-btn skip-btn" id="rewind30-btn" title="30秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
+        </div>
+
+        <div class="icon-btn skip-btn" id="rewind-btn" title="10秒巻き戻し">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
+        <div class="icon-btn play-btn" id="play-btn">
+            <svg viewBox="0 0 24 24" id="play-icon">
+                <path d="M8 5v14l11-7z"/>
+            </svg>
+        </div>
+
+        <div class="icon-btn skip-btn" id="forward-btn" title="10秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">10</span>
+        </div>
+
+        <div class="icon-btn skip-btn" id="forward30-btn" title="30秒早送り">
+            <svg viewBox="0 0 24 24" style="transform: scaleX(-1);">
+                <path d="M12 5V1L7 6l5 5V7c3.31 0 6 2.69 6 6s-2.69 6-6 6-6-2.69-6-6H4c0 4.42 3.58 8 8 8s8-3.58 8-8-3.58-8-8-8z"/>
+            </svg>
+            <span class="skip-label">30</span>
+        </div>
+    </div>
+
+    <div class="position-row">
+        <div class="position-status-wrap">
+            <span id="position-status">再生位置：確認中…</span>
+            <button type="button" class="position-status-hit" id="position-status-hit" aria-label="再生位置同期の状態（タップで許可/再試行、長押しでリセット）"></button>
+        </div>
+    </div>
+
+    <div class="utility-row">
+        <label class="icon-btn" title="音声ファイルを選択">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 4H4c-1.1 0-1.99.9-1.99 2L2 18c0 1.1.9 2 2 2h16c1.1 0 2-.9 2-2V8c0-1.1-.9-2-2-2h-8l-2-2z"/>
+            </svg>
+            <input type="file" id="audio-file" accept="audio/*">
+        </label>
+
+        <div class="icon-btn sleep-combo" id="talk-enhance-btn" title="トーク強調（クリックで切替: OFF→Low→Low Auto→High→High Auto）">
+            <svg viewBox="0 0 24 24">
+                <path d="M10 20h4V4h-4v16zm-6 0h4v-8H4v8zm12-16v16h4V4h-4z"/>
+            </svg>
+            <span id="talk-enhance-status">OFF</span>
+        </div>
+
+        <div class="icon-btn sleep-combo" id="sleep-btn" title="スリープタイマー（クリックで切替）">
+            <svg viewBox="0 0 24 24">
+                <path d="M12 3a9 9 0 1 0 9 9c0-.46-.04-.92-.1-1.36a5.389 5.389 0 0 1-4.4 2.26 5.403 5.403 0 0 1-5.4-5.4c0-1.71.87-3.22 2.2-4.1-.44-.06-.9-.1-1.36-.1z"/>
+            </svg>
+            <span id="sleep-status">OFF</span>
+        </div>
+
+        <div class="icon-btn hp-btn disabled" id="hp-btn" title="ホームページを開く">
+            <svg viewBox="0 0 24 24">
+                <path d="M19 19H5V5h7V3H5c-1.11 0-2 .9-2 2v14c0 1.1.89 2 2 2h14c1.1 0 2-.9 2-2v-7h-2v7zM14 3v2h3.59l-9.83 9.83 1.41 1.41L19 6.41V10h2V3h-7z"/>
+            </svg>
+        </div>
+    </div>
+
+    <div class="version-tag">v2.4.1</div>
+
+    <audio id="audio-player" style="display: none;"></audio>
+
+    <div class="lyrics-overlay" id="lyrics-overlay">
+        <div class="lyrics-header" id="lyrics-close">
+            <span>【歌詞表示】</span>
+            <span>閉じる ✕</span>
+        </div>
+        <div class="lyrics-content" id="lyrics-content">歌詞情報がありません。</div>
+    </div>
+</div>
+
 <script>
-const ACC=['財布','銀行口座A','銀行口座B','銀行口座C','クレジット','交通系IC'];
-const INC=['給与','営業','臨時収入','パート代'];
-const EXP={食費:0,交通費:0,交際費:0,消耗品:0,雑費:0,図書費:0,地代家賃:['家賃','駐輪場代'],通信費:['携帯電話','インターネット','衛星放送','切手'],光熱費:['水道','電気','ガス'],保険年金:['国民健康保険','全労済','火災保険'],医療費:0,荷台運賃:0,未設定:0};
-const KEY='kakeibo-v1';let S;
-try{S=JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){S=null}
-if(!S){S={names:{h:'夫',w:'妻'},icons:{},acc:{},tx:[],sync:null};['h','w'].forEach(o=>ACC.forEach((a,i)=>S.acc[o+i]=a))}
-const save=()=>{try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){msg('保存できません。ブラウザの容量を確認してください。')}};
-const $=id=>document.getElementById(id);
-const yen=n=>S.hide?'¥ ••••':'¥ '+n.toLocaleString('ja-JP');
-const ids=[...[0,1,2,3,4,5].map(i=>'h'+i),...[0,1,2,3,4,5].map(i=>'w'+i)];
-const esc=s=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-function msg(t){const m=$('msg');m.textContent=t;m.style.display='block';clearTimeout(msg.t);msg.t=setTimeout(()=>m.style.display='none',2800)}
-const todayStr=()=>new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
-function bal(id,all){let b=(S.init&&S.init[id])||0;const td=todayStr();S.tx.forEach(t=>{if(!all&&t.date>td)return;if(t.type==='収入'&&t.acct===id)b+=t.amount;else if(t.type==='支出'&&t.acct===id)b-=t.amount;else if(t.type==='振替'){if(t.acct===id)b-=t.amount;if(t.to===id)b+=t.amount}});return b}
-const icon=(k)=>`<span class="ic" ${editing?`data-ic="${k}"`:''}>${S.icons[k]?`<img src="${S.icons[k]}" alt="">`:(editing?'画像':'')}</span>`;
-let editing=false;
-function render(){
- let tot=0;
- ['h','w'].forEach(o=>{
-  let h=`<div class="who">${icon(o)}${editing?`<input class="nm" data-nm="${o}" value="${esc(S.names[o])}">`:`<span>${esc(S.names[o])}</span>`}</div>`;
-  for(let i=0;i<6;i++){const id=o+i,b=bal(id);tot+=b;
-   h+=`<div class="acc" data-ac="${id}">${icon(id)}<div class="tx"><div class="n">${editing?`<input class="nm" data-an="${id}" value="${esc(S.acc[id])}">`:esc(S.acc[id])}</div><div class="v ${b<0?'neg':''}" ${editing?`data-init="${id}"`:''}>${yen(b)}</div></div></div>`}
-  const stale=S.sync===null;
-  h+=`<div class="sync ${stale?'warn':''}"><span>${S.sync?'最終同期 '+new Date(S.sync).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'}):'未同期の保存があります'}</span><button class="sm" data-cloud="1" aria-label="今すぐ同期">☁</button></div>`;
-  $('c'+o).innerHTML=h});
- const t=$('total');t.textContent=yen(tot);t.className=tot<0?'neg':'';
- $('edit').textContent=editing?'編集を終える':'名前・口座を編集';$('hide').textContent=S.hide?'金額を表示':'金額を非表示'}
-let iconTarget=null;
-document.addEventListener('click',e=>{
- const ic=e.target.closest('[data-ic]');if(ic){iconMenu(ic.dataset.ic);return}
- if(e.target.closest('[data-cloud]')){msg('Googleスプレッドシートとの同期は、次の段階で設定できるようにします。');return}
- const iv=e.target.closest('[data-init]');if(iv){initMenu(iv.dataset.init);return}
- const tr=e.target.closest('[data-tx]');if(tr){editTx(+tr.dataset.tx);return}
- const ac=e.target.closest('[data-ac]');if(ac&&!editing&&!e.target.closest('input'))hist(ac.dataset.ac)});
-$('file').onchange=e=>{const f=e.target.files[0];if(!f||!iconTarget)return;const r=new FileReader();r.onload=()=>{const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=c.height=96;const x=c.getContext('2d'),s=Math.min(im.width,im.height);x.drawImage(im,(im.width-s)/2,(im.height-s)/2,s,s,0,0,96,96);S.icons[iconTarget]=c.toDataURL('image/jpeg',.8);save();render()};im.src=r.result};r.readAsDataURL(f);e.target.value=''};
-document.addEventListener('input',e=>{const t=e.target;if(t.dataset.nm){S.names[t.dataset.nm]=t.value;save()}if(t.dataset.an){S.acc[t.dataset.an]=t.value;save()}});
-$('edit').onclick=()=>{editing=!editing;render()};
-$('hide').onclick=()=>{S.hide=!S.hide;save();render()};
-$('total').onclick=()=>{const a=ids.reduce((s,i)=>s+bal(i),0),f=ids.reduce((s,i)=>s+bal(i,true),0);
- $('s2').innerHTML=`<h2>2人の合計</h2><div class="row"><span>現在の合計</span><b class="${a<0?'neg':''}">${yen(a)}</b></div><div class="row" style="opacity:.7"><span>将来の合計</span><b class="${f<0?'neg':''}">${yen(f)}</b></div><button class="ok cl" id="x2">閉じる</button>`;$('d2').classList.add('on');$('x2').onclick=()=>$('d2').classList.remove('on')};
-document.addEventListener('visibilitychange',()=>{if(!document.hidden&&!editing)render()});
-const owner=id=>S.names[id[0]];
-const an=id=>owner(id)+'の'+S.acc[id];
-function hist(id){
- const L=S.tx.filter(t=>t.acct===id||t.to===id).sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id);
- histAcct=id;const b1=bal(id),b2=bal(id,true);
- let h=`<h2>${esc(an(id))}の履歴</h2><div class="row"><span>現在の合計</span><b class="${b1<0?'neg':''}">${yen(b1)}</b></div><div class="row" style="opacity:.7"><span>将来の合計</span><b class="${b2<0?'neg':''}">${yen(b2)}</b></div>`;
- if(!L.length)h+='<p style="color:var(--gray)">まだ履歴がありません。下の「入力」から登録できます。</p>';
- L.forEach(t=>{const v=t.type==='収入'?t.amount:t.type==='支出'?-t.amount:(t.acct===id?-t.amount:t.amount);
-  h+=`<div class="row ${t.date>todayStr()?'fut':''}" data-tx="${t.id}"><div>${t.date}${t.date>todayStr()?'(予定)':''}　${t.type}${t.subject?'・'+esc(t.subject):''}${t.item?'・'+esc(t.item):''}<small>${esc([t.shop,t.memo].filter(Boolean).join(' / '))}${t.type==='振替'?esc(t.acct===id?'→ '+an(t.to):'← '+an(t.acct)):''}</small></div><b class="${v<0?'neg':''}">${yen(v)}</b></div>`});
- if(/^[hw]4$/.test(id))h+='<button class="ok" id="csvi" style="background:#2b6cb0">CSV読み込み</button>';
- if(/^[hw][45]$/.test(id))h+='<button class="ok" id="sch">翌月10日の振替予定を自動入力</button>';h+='<button class="ok cl" id="x2">閉じる</button>';$('s2').innerHTML=h;$('d2').classList.add('on');if($('sch'))$('sch').onclick=()=>sched(id);if($('csvi'))$('csvi').onclick=()=>{csvTarget=id;$('csvf').click()};$('x2').onclick=()=>$('d2').classList.remove('on')}
-$('d2').onclick=e=>{if(e.target.id==='d2')$('d2').classList.remove('on')};
-$('d1').onclick=e=>{if(e.target.id==='d1')closeForm()};
-const opts=(a,sel)=>a.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('');
-const accOpts=()=>ids.map(i=>`<option value="${i}">${esc(an(i))}</option>`).join('');
-let type='支出',editId=null,histAcct=null;
-function closeForm(){$('d1').classList.remove('on');const b=editId;editId=null;if(b&&histAcct)hist(histAcct)}
-function shopUI(cur){const sj=$('sj').value,seen=[];S.tx.slice().sort((a,b)=>b.date.localeCompare(a.date)||b.id-a.id).forEach(t=>{if(t.subject===sj&&t.shop&&!seen.includes(t.shop)&&seen.length<10)seen.push(t.shop)});
- const s=$('shs');s.innerHTML='<option value="">(お店なし)</option>'+seen.map(x=>`<option value="${esc(x)}">${esc(x)}</option>`).join('')+'<option value="__new">新規入力…</option>';
- const v=cur===undefined?(seen.length?'':'__new'):(cur===''?'':seen.includes(cur)?cur:'__new');s.value=v;$('sh').style.display=v==='__new'?'':'none';if(cur&&v==='__new')$('sh').value=cur}
-const pad=n=>String(n).padStart(2,'0');
-function baseHol(y,m,d){const w=new Date(y,m-1,d).getDay(),n=Math.ceil(d/7),mon=w===1,k=m*100+d,q=Math.floor((y-1980)/4);
- if([101,211,223,429,503,504,505,811,1103,1123].includes(k))return true;
- if(mon&&((m===1&&n===2)||(m===7&&n===3)||(m===9&&n===3)||(m===10&&n===2)))return true;
- if(m===3&&d===Math.floor(20.8431+.242194*(y-1980)-q))return true;
- if(m===9&&d===Math.floor(23.2488+.242194*(y-1980)-q))return true;return false}
-const bh=dt=>baseHol(dt.getFullYear(),dt.getMonth()+1,dt.getDate());
-function isHol(y,m,d){const dt=new Date(y,m-1,d),w=dt.getDay();if(w===0||w===6||(m===12&&d===31)||(m===1&&d<=3)||bh(dt))return true;
- let p=new Date(y,m-1,d-1);while(bh(p)){if(p.getDay()===0)return true;p=new Date(p.getFullYear(),p.getMonth(),p.getDate()-1)}
- return bh(new Date(y,m-1,d-1))&&bh(new Date(y,m-1,d+1))}
-function settleDate(y,m){let d=10;while(isHol(y,m,d))d++;return y+'-'+pad(m)+'-'+pad(d)}
-function sched(id){const src=id[1]==='4'?id[0]+'1':'h1',td=todayStr(),sum={};
- S.tx.forEach(t=>{if(t.acct!==id||(t.type!=='支出'&&t.type!=='収入'))return;let[y,m]=t.date.split('-').map(Number);m++;if(m>12){m=1;y++}let sd=settleDate(y,m);if(sd<td){let ty=+td.slice(0,4),tm=+td.slice(5,7)+1;if(tm>12){tm=1;ty++}sd=settleDate(ty,tm)}sum[sd]=(sum[sd]||0)+(t.type==='支出'?t.amount:-t.amount)});
- let add=0,dup=0;Object.keys(sum).sort().forEach(sd=>{const a=sum[sd];if(a<=0)return;if(S.tx.some(t=>t.type==='振替'&&t.to===id&&t.date===sd)){dup++;return}S.tx.push({id:Date.now()+add,date:sd,type:'振替',acct:src,to:id,amount:a});add++});
- if(add){S.sync=null;save();render()}hist(id);
- msg(add?add+'件の振替予定を登録しました。'+(dup?'(登録済み'+dup+'件は除く)':''):dup?'すでに振替予定が登録されているため、二重登録しませんでした。':'振替予定にできる支出がありません。')}
-let csvTarget=null;
-function initMenu(id){const cur=(S.init&&S.init[id])||0;$('s2').innerHTML=`<h2>${esc(an(id))}の初期設定金額</h2><p style="color:var(--gray);font-size:13px;margin:0">この金額に履歴の収入・支出・振替を加減して残高を計算します。履歴やCSV出力の内容は変わりません。</p><label>初期設定金額(円)</label><input type="number" id="iv" inputmode="numeric" value="${cur}"><div class="row" style="margin-top:10px"><span>現在の残高</span><b>${yen(bal(id))}</b></div><button class="ok" id="isv">設定する</button><button class="ok cl" id="ixx">キャンセル</button>`;$('d2').classList.add('on');
- $('isv').onclick=()=>{S.init=S.init||{};S.init[id]=Math.round(+$('iv').value)||0;S.sync=null;save();render();$('d2').classList.remove('on')};
- $('ixx').onclick=()=>$('d2').classList.remove('on')}
-function iconMenu(k){const has=!!S.icons[k];$('s2').innerHTML=`<h2>アイコンの設定</h2><button class="ok" id="ia">A: アイコン画像を設定／再設定</button><button class="ok" id="ib" style="background:#d12c2c;${has?'':'opacity:.4'}">B: アイコン画像を削除</button><button class="ok cl" id="ix">キャンセル</button>`;$('d2').classList.add('on');
- $('ia').onclick=()=>{iconTarget=k;$('d2').classList.remove('on');$('file').click()};
- $('ib').onclick=()=>{if(has){delete S.icons[k];save();render()}$('d2').classList.remove('on')};
- $('ix').onclick=()=>$('d2').classList.remove('on')}
-function parseCSV(t){const rows=[];let r=[],f='',q=false;for(let i=0;i<t.length;i++){const c=t[i];if(q){if(c==='"'){if(t[i+1]==='"'){f+='"';i++}else q=false}else f+=c}else if(c==='"')q=true;else if(c===','){r.push(f);f=''}else if(c==='\n'||c==='\r'){if(c==='\r'&&t[i+1]==='\n')i++;r.push(f);rows.push(r);r=[];f=''}else f+=c}if(f!==''||r.length){r.push(f);rows.push(r)}return rows}
-function importCSV(id,buf){let tx;try{tx=new TextDecoder('utf-8',{fatal:true}).decode(buf)}catch(e){tx=new TextDecoder('shift_jis').decode(buf)}
- const rows=parseCSV(tx.replace(/^\ufeff/,'')),hd=(rows[0]||[]).map(x=>x.trim()),ix=k=>hd.findIndex(h=>h.includes(k)),iS=ix('ご利用店名'),iD=ix('ご利用日'),iA=ix('ご利用金額');
- if(iS<0||iD<0||iA<0)return msg('読み込めない形式です。ラベル行に「ご利用店名」「ご利用日」「ご利用金額」が必要です。');
- const key=(d,ty,a,s)=>[d,ty,a,s].join('|'),have={};S.tx.filter(t=>t.acct===id).forEach(t=>{const k=key(t.date,t.type,t.amount,t.shop||'');have[k]=(have[k]||0)+1});
- let n=0,skip=0;rows.slice(1).forEach(r=>{const m=(r[iD]||'').normalize('NFKC').match(/(\d{4})年(\d{1,2})月(\d{1,2})日/),a=parseInt((r[iA]||'').normalize('NFKC').replace(/[,\s円]/g,''),10);if(!m||isNaN(a)||a===0)return;
-  const date=m[1]+'-'+pad(+m[2])+'-'+pad(+m[3]),ty=a<0?'収入':'支出',amt=Math.abs(a),shop=(r[iS]||'').normalize('NFKC').replace(/\s+/g,' ').trim(),k=key(date,ty,amt,shop);
-  if(have[k]>0){have[k]--;skip++;return}
-  S.tx.push({id:Date.now()+n,date,type:ty,acct:id,amount:amt,subject:'',item:'',shop,memo:''});n++});
- if(n){S.sync=null;save();render()}hist(id);
- msg(n?n+'件を取り込みました。'+(skip?'(登録済み'+skip+'件は除く)':''):skip?'すべて取り込み済みのため、追加しませんでした。':'取り込める明細がありませんでした。')}
-$('csvf').onchange=async e=>{const f=e.target.files[0];e.target.value='';if(f&&csvTarget)importCSV(csvTarget,await f.arrayBuffer())};
-function editTx(id){const t=S.tx.find(x=>x.id===id);if(!t)return;editId=id;type=t.type;$('d2').classList.remove('on');form();$('d1').classList.add('on')}
-function form(){
- const today=new Date(Date.now()-new Date().getTimezoneOffset()*6e4).toISOString().slice(0,10);
- const prev=$('dt')?$('dt').value:today;
- let h=`<h2>${editId?'入力を修正':'入力'}</h2><div class="seg" ${editId?'style="display:none"':''}>${['収入','支出','振替'].map(t=>`<button data-t="${t}" class="${t===type?'on':''}">${t}</button>`).join('')}</div>
- <label>日付</label><input type="date" id="dt" value="${prev}">`;
- if(type==='振替')h+=`<label>どの口座から</label><select id="a1">${accOpts()}</select><label>どの口座へ</label><select id="a2">${accOpts()}</select>`;
- else h+=`<label>口座</label><select id="a1">${accOpts()}</select>`;
- h+=`<label>金額</label><input type="number" id="am" inputmode="numeric" min="1" placeholder="0">`;
- if(type!=='振替'){h+=`<label>科目</label><select id="sj">${opts(type==='収入'?INC:Object.keys(EXP))}</select><div id="itw"></div><label>お店</label><select id="shs"></select><input type="text" id="sh" placeholder="お店の名前" style="margin-top:6px;display:none"><label>メモ(空欄可)</label><input type="text" id="mm">`}
- h+=`<button class="ok" id="sv">入力を確定</button><button class="ok cl" id="x1">キャンセル</button>${editId?'<button class="ok" id="dl" style="background:#d12c2c">この入力を削除</button>':''}`;
- $('s1').innerHTML=h;
- document.querySelectorAll('[data-t]').forEach(b=>b.onclick=()=>{type=b.dataset.t;form()});
- const items=()=>{const w=$('itw');if(type!=='支出'){w.innerHTML='';return}const it=EXP[$('sj').value];w.innerHTML=it?`<label>品目</label><select id="it">${opts(it)}</select>`:''};
- if($('sj')){$('sj').onchange=()=>{items();shopUI()};items();shopUI();$('shs').onchange=()=>{$('sh').style.display=$('shs').value==='__new'?'':'none'}}
- if(type==='振替')$('a2').selectedIndex=1;
- if(editId){const t=S.tx.find(x=>x.id===editId);$('dt').value=t.date;$('a1').value=t.acct;$('am').value=t.amount;if(t.type==='振替')$('a2').value=t.to;else{if(t.subject)$('sj').value=t.subject;items();if($('it'))$('it').value=t.item;shopUI(t.shop||'');$('mm').value=t.memo||''}
-  $('dl').onclick=()=>{if(!$('dl').dataset.a){$('dl').dataset.a=1;$('dl').textContent='もう一度押すと削除します';return}S.tx=S.tx.filter(x=>x.id!==editId);S.sync=null;save();render();closeForm();msg('削除しました。')}}
- $('x1').onclick=closeForm;
- $('sv').onclick=()=>{const am=Math.round(+$('am').value);
-  if(!am||am<1)return msg('金額を入力してください。');
-  const t={id:editId||Date.now(),date:$('dt').value,type,acct:$('a1').value,amount:am};
-  if(type==='振替'){t.to=$('a2').value;if(t.to===t.acct)return msg('振替元と振替先に別の口座を選んでください。')}
-  else{t.subject=$('sj').value;t.item=$('it')?$('it').value:'';t.shop=$('shs').value==='__new'?$('sh').value.trim():$('shs').value;t.memo=$('mm').value}
-  if(editId){const i=S.tx.findIndex(x=>x.id===editId);S.tx[i]=t}else S.tx.push(t);S.sync=null;save();render();closeForm();msg('保存しました。')}}
-$('add').onclick=()=>{editId=null;form();$('d1').classList.add('on')};
-$('csv').onclick=()=>{
- const q=v=>'"'+String(v??'').replace(/"/g,'""')+'"';
- const rows=[['日付','収支','口座','振替先','金額','科目','品目','お店','メモ']];
- S.tx.slice().sort((a,b)=>a.date.localeCompare(b.date)).forEach(t=>rows.push([t.date,t.type,an(t.acct),t.to?an(t.to):'',t.amount,t.subject||'',t.item||'',t.shop||'',t.memo||'']));
- const blob=new Blob(['\ufeff'+rows.map(r=>r.map(q).join(',')).join('\r\n')],{type:'text/csv'});
- const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download='kakeibo.csv';a.click()};
-render();
-</script></body></html>
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js').catch(err => console.log('SW登録失敗', err));
+        });
+    }
+
+    const fileInput = document.getElementById('audio-file');
+    const audioPlayer = document.getElementById('audio-player');
+    const playBtn = document.getElementById('play-btn');
+    const hpBtn = document.getElementById('hp-btn');
+    const rewindBtn = document.getElementById('rewind-btn');
+    const forwardBtn = document.getElementById('forward-btn');
+    const talkEnhanceBtn = document.getElementById('talk-enhance-btn');
+    const talkEnhanceStatus = document.getElementById('talk-enhance-status');
+    const sleepBtn = document.getElementById('sleep-btn');
+    const sleepStatus = document.getElementById('sleep-status');
+    const blankPrevBtn = document.getElementById('blank-prev-btn');
+    const blankNextBtn = document.getElementById('blank-next-btn');
+    const blankStatus = document.getElementById('blank-status');
+    const blankStatusHit = document.getElementById('blank-status-hit');
+    const positionStatus = document.getElementById('position-status');
+    const positionStatusHit = document.getElementById('position-status-hit');
+    const timeDisplay = document.getElementById('time-display');
+    const seekBar = document.getElementById('seek-bar');
+    const rewind30Btn = document.getElementById('rewind30-btn');
+    const forward30Btn = document.getElementById('forward30-btn');
+    
+    const trackTitle = document.getElementById('track-title');
+    const trackAlbum = document.getElementById('track-album');
+    const trackArtist = document.getElementById('track-artist');
+    const coverArt = document.getElementById('cover-art');
+    const resumeStatus = document.getElementById('resume-status');
+    const lyricsOverlay = document.getElementById('lyrics-overlay');
+    const lyricsContent = document.getElementById('lyrics-content');
+    const lyricsClose = document.getElementById('lyrics-close');
+
+    let currentFileName = "";
+    let currentHpUrl = "";
+    let isDragging = false;
+    let wasPlayingBeforeDrag = false;
+    let lastSavedTime = 0;
+    let lastDiskSavedTime = 0;
+    const RESUME_SAVE_INTERVAL = 2;  // 秒。ローカル(localStorage)保存の間引き間隔
+    const DISK_SAVE_INTERVAL = 10;   // 秒。_JSON/*.blanks.json への書き込みの間引き間隔
+
+    let userSeekedSinceLoad = false; // シークバー操作や早送り/巻き戻しなど、ユーザーが自分で位置を変えたか
+                                      // （非同期の_JSON読み込みが遅れて自動再生が数秒進んでしまっても、
+                                      //   ユーザー自身が操作していなければ他デバイスの位置を適用してよい判断に使う）
+
+    let blankIntervals = [];      // 検出された無音区間 [{start, end}, ...]（秒）。_JSONのblanks.jsonから読み込まれる
+    let blankScanToken = 0;       // ファイル切り替え時に古い非同期処理の結果を無視するためのトークン
+    let blankLocalDone = false;   // このファイルで_JSONからの読込みが完了したか
+    let blanksFileData = null;    // 現在のファイルの.blanks.json全体（app/version/fileName/duration/generatedAt/intervals等）
+    let musicIntervals = [];       // .blanks.json の musicIntervals（音楽部分）。トーク強調Autoで「OFFにする区間」として使用
+    let talkIntervals = [];        // .blanks.json の talkIntervals（トーク部分）。情報用（Autoは musicIntervals 以外をトークとして扱う）
+                                   // position更新時に、既存の内容を保ったまま書き戻すために保持しておく
+    let positionUIState = 'idle'; // 再生位置ステータス表示の現在の状態
+
+    const svgPlay = `<svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>`;
+    const svgPause = `<svg viewBox="0 0 24 24"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>`;
+
+    function updateSeekBarVisual(current, duration) {
+        if (!duration || isNaN(duration)) return;
+        const percent = (current / duration) * 100;
+        seekBar.style.setProperty('--val', `${percent}%`);
+    }
+
+    seekBar.addEventListener('input', (e) => {
+        if (!isDragging) {
+            isDragging = true;
+            wasPlayingBeforeDrag = !audioPlayer.paused;
+        }
+        const val = parseFloat(e.target.value);
+        updateSeekBarVisual(val, audioPlayer.duration);
+        updateTimeDisplay(val, audioPlayer.duration);
+    });
+
+    seekBar.addEventListener('change', (e) => {
+        const val = parseFloat(e.target.value);
+        audioPlayer.currentTime = val;
+        isDragging = false;
+        userSeekedSinceLoad = true;
+
+        if (wasPlayingBeforeDrag) {
+            audioPlayer.play().catch(e => console.log("シーク後の自動再生ブロック", e));
+        }
+    });
+
+    // ----------------------------------------------------
+    // 通知欄・ロック画面のプレーヤー表示（Media Session API）
+    // 背景＝番組画像（アートワーク）、太字＝Titleタグ、細字＝Artistタグ
+    // ----------------------------------------------------
+    let mediaArtworkUrl = null;
+
+    function updateMediaSession(title, artist, picture) {
+        if (!('mediaSession' in navigator) || typeof MediaMetadata === 'undefined') return;
+        try {
+            if (mediaArtworkUrl) {
+                URL.revokeObjectURL(mediaArtworkUrl);
+                mediaArtworkUrl = null;
+            }
+
+            let artwork = [];
+            if (picture && picture.data && picture.data.length) {
+                const type = picture.format || 'image/jpeg';
+                mediaArtworkUrl = URL.createObjectURL(new Blob([new Uint8Array(picture.data)], { type }));
+                artwork = [{ src: mediaArtworkUrl, sizes: '512x512', type }];
+            } else {
+                // 番組画像が無い場合は、アプリのアイコンを代わりに使う
+                artwork = [{ src: new URL('icon.png', location.href).href, sizes: '192x192', type: 'image/png' }];
+            }
+
+            navigator.mediaSession.metadata = new MediaMetadata({
+                title: title || '',
+                artist: artist || '',
+                artwork
+            });
+        } catch (e) {
+            console.log('[MediaSession] 通知欄の表示設定に失敗しました', e);
+        }
+    }
+
+    function formatTime(seconds) {
+        if (isNaN(seconds)) return "00:00";
+        const h = Math.floor(seconds / 3600);
+        const m = Math.floor((seconds % 3600) / 60);
+        const s = Math.floor(seconds % 60);
+        if (h > 0) return `${h}:${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+        return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function updateTimeDisplay(current, total) {
+        timeDisplay.textContent = `${formatTime(current)} / ${formatTime(total)}`;
+    }
+
+    function saveResumePosition(position) {
+        if (!currentFileName || position <= 0) return;
+        const record = { position, updatedAt: Date.now() };
+        localStorage.setItem(`resume_${currentFileName}`, JSON.stringify(record));
+        lastSavedTime = position;
+    }
+
+    // ----------------------------------------------------
+    // ブランクスキップ機能：_JSONフォルダの .blanks.json を自動で探して読み込むだけ。
+    // アプリ内での無音検出（スキャン）は行わない。
+    // ----------------------------------------------------
+    let blankUIState = 'idle';
+
+    function updateBlankUI(state) {
+        // state: 'idle'（_JSON確認中） | 'done'（見つかった） | 'notfound'（見つからなかった） | 'unsupported'（非対応ブラウザ）
+        blankUIState = state;
+        blankStatus.classList.remove('ready');
+
+        if (state === 'idle') {
+            blankStatus.textContent = 'ブランク検出: 確認中…';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+        } else if (state === 'done') {
+            blankStatus.classList.add('ready');
+            refreshBlankNav();
+        } else if (state === 'unsupported') {
+            blankStatus.textContent = 'JSON不検出（非対応ブラウザ）';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+        } else {
+            // 'notfound'
+            blankStatus.textContent = 'JSON不検出（タップで許可/再検索）';
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+        }
+    }
+
+    // 検出済み状態のときだけ、現在の再生位置に応じて「I◀ ブランク検出（n/合計） ▶I」の表示を更新する
+    function refreshBlankNav() {
+        if (blankUIState !== 'done') return;
+
+        const total = blankIntervals.length;
+        if (total === 0) {
+            blankStatus.textContent = 'JSON不検出';
+            blankStatus.classList.remove('ready');
+            blankPrevBtn.classList.add('disabled');
+            blankNextBtn.classList.add('disabled');
+            return;
+        }
+
+        const cur = audioPlayer.currentTime || 0;
+        const passed = blankIntervals.filter(iv => iv.end <= cur + 0.05).length;
+        const displayIndex = Math.min(passed + 1, total);
+
+        blankStatus.textContent = `ブランク検出（${displayIndex}/${total}）`;
+        blankPrevBtn.classList.toggle('disabled', passed === 0);
+        blankNextBtn.classList.toggle('disabled', passed >= total);
+    }
+
+    // 「再生位置：〜」の表示を更新する
+    function updatePositionStatus(state) {
+        // state: 'checking' | 'loaded' | 'recording' | 'error' | 'nofolder' | 'unsupported'
+        positionUIState = state;
+        positionStatus.classList.remove('ready', 'error');
+
+        if (state === 'checking') {
+            positionStatus.textContent = '再生位置：確認中…';
+        } else if (state === 'loaded') {
+            positionStatus.textContent = '再生位置：読み込み完了';
+            positionStatus.classList.add('ready');
+        } else if (state === 'recording') {
+            positionStatus.textContent = '再生位置：記録中';
+            positionStatus.classList.add('ready');
+        } else if (state === 'error') {
+            positionStatus.textContent = '再生位置：読み込みエラー（タップで再試行）';
+            positionStatus.classList.add('error');
+        } else if (state === 'unsupported') {
+            positionStatus.textContent = '再生位置：非対応ブラウザ';
+        } else {
+            // 'nofolder'
+            positionStatus.textContent = '再生位置：タップで許可';
+        }
+    }
+
+    function jumpToNextBlank() {
+        if (!blankIntervals.length || !audioPlayer.src) return;
+        const cur = audioPlayer.currentTime;
+        // 現在位置より後ろにある（まだ通過していない）最初の無音区間の「終わり」へ飛ぶ
+        const next = blankIntervals.find(iv => iv.end > cur + 0.5);
+        if (next) {
+            const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : next.end;
+            audioPlayer.currentTime = Math.min(next.end, dur);
+        }
+        refreshBlankNav();
+    }
+
+    function jumpToPrevBlank() {
+        if (!blankIntervals.length || !audioPlayer.src) return;
+        const cur = audioPlayer.currentTime;
+        // 現在位置より前にある、直近で通過した無音区間の「終わり」へ戻る
+        let prev = null;
+        for (const iv of blankIntervals) {
+            if (iv.end < cur - 0.5) prev = iv;
+            else break;
+        }
+        audioPlayer.currentTime = prev ? prev.end : 0;
+        refreshBlankNav();
+    }
+
+    blankNextBtn.addEventListener('click', () => {
+        if (blankNextBtn.classList.contains('disabled')) return;
+        jumpToNextBlank();
+        userSeekedSinceLoad = true;
+    });
+
+    blankPrevBtn.addEventListener('click', () => {
+        if (blankPrevBtn.classList.contains('disabled')) return;
+        jumpToPrevBlank();
+        userSeekedSinceLoad = true;
+    });
+
+    // ----------------------------------------------------
+    // ブランクスキップ用JSONの読込み（_JSONフォルダから自動で見つけて適用する）
+    // ----------------------------------------------------
+
+    // ファイル名比較用の正規化
+    // ・全角/半角の表記ゆれをNFKCで吸収
+    // ・「〜」（波ダッシュ）はMac(U+301C)とWindows(U+FF5E)で異なる文字が使われがちなため、
+    //   見た目が同じ記号（〜・～・~・⁓）を同一視する
+    function normalizeFileNameForCompare(name) {
+        if (!name) return '';
+        return name
+            .normalize('NFKC')
+            .replace(/[\u301C\uFF5E\u2053\u007E]/g, '~');
+    }
+
+    // 日本標準時（UTC+9固定）でISO 8601形式の文字列を生成する（例: 2026-08-22T03:23:25.957+09:00）。
+    // オフセット付きISO文字列なので、new Date(str).getTime() による新旧比較には引き続き問題なく使える。
+    function toJSTISOString(date) {
+        const jstOffsetMs = 9 * 60 * 60 * 1000;
+        const jst = new Date(date.getTime() + jstOffsetMs);
+        const pad = (n, l = 2) => String(n).padStart(l, '0');
+        return `${jst.getUTCFullYear()}-${pad(jst.getUTCMonth() + 1)}-${pad(jst.getUTCDate())}T` +
+               `${pad(jst.getUTCHours())}:${pad(jst.getUTCMinutes())}:${pad(jst.getUTCSeconds())}.` +
+               `${pad(jst.getUTCMilliseconds(), 3)}+09:00`;
+    }
+
+    // このブラウザ（端末）を識別する簡単なラベル（OS種別＋ランダム4桁、個人情報は含まない）
+    function getDeviceLabel() {
+        let label = localStorage.getItem('deviceLabel');
+        if (!label) {
+            const ua = navigator.userAgent;
+            const isAndroid = /Android/i.test(ua);
+            const isMac = !isAndroid && /Macintosh|Mac OS X/i.test(ua);
+            const isWindows = !isAndroid && /Windows/i.test(ua);
+            const osLabel = isAndroid ? 'Android' : isMac ? 'Mac' : isWindows ? 'Windows' : 'Device';
+            const randomSuffix = Math.random().toString(16).slice(2, 6).toUpperCase();
+            label = `${osLabel}-${randomSuffix}`;
+            localStorage.setItem('deviceLabel', label);
+        }
+        return label;
+    }
+
+    // .blanks.json の内容（app/version/fileName/duration/generatedAt/intervals/position/updated/device）を
+    // 読み込んで、ブランクスキップと再生位置の両方に反映する。
+    function applyLoadedBlanksData(data, myFileName) {
+        if (!data || typeof data !== 'object') {
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        blanksFileData = data;
+        blankIntervals = Array.isArray(data.intervals) ? data.intervals.filter(
+            iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start
+        ) : [];
+        blankLocalDone = true;
+        updateBlankUI('done');
+
+        // トーク/音楽の区間（イコライザ自動切替用）
+        const validIv = iv => iv && typeof iv.start === 'number' && typeof iv.end === 'number' && iv.end > iv.start;
+        musicIntervals = Array.isArray(data.musicIntervals) ? data.musicIntervals.filter(validIv) : [];
+        talkIntervals = Array.isArray(data.talkIntervals) ? data.talkIntervals.filter(validIv) : [];
+        console.log(`[EQ] 音楽区間 ${musicIntervals.length}件 / トーク区間 ${talkIntervals.length}件`);
+        refreshTalkEnhanceAuto();
+
+        // 再生位置の反映（updatedのタイムスタンプで新旧比較。「後勝ち」方式）
+        if (typeof data.position === 'number' && data.updated) {
+            const rawLocal = localStorage.getItem(`resume_${myFileName}`);
+            let localRecord = null;
+            try { localRecord = rawLocal ? JSON.parse(rawLocal) : null; } catch (e) { localRecord = null; }
+
+            const cloudUpdatedMs = new Date(data.updated).getTime();
+            const localUpdatedMs = localRecord ? localRecord.updatedAt : 0;
+
+            if (!localRecord || cloudUpdatedMs > localUpdatedMs) {
+                localStorage.setItem(`resume_${myFileName}`, JSON.stringify({ position: data.position, updatedAt: cloudUpdatedMs }));
+
+                // ユーザー自身がまだ手動でシークしていなければ、他デバイスでの続きの位置に合わせる
+                if (!userSeekedSinceLoad && data.position > 0) {
+                    audioPlayer.currentTime = data.position;
+                    resumeStatus.textContent = '前回位置から再開（_JSON同期）';
+                    setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+                }
+                console.log(`[_JSON] position読み込み・適用: ${data.position.toFixed(1)}秒 (更新: ${data.updated} / ${data.device || '不明'})`);
+            } else {
+                console.log(`[_JSON] ローカルの方が新しいため再生位置は適用せず`);
+            }
+
+            updatePositionStatus('loaded');
+            const myToken = blankScanToken;
+            setTimeout(() => {
+                if (myToken === blankScanToken) updatePositionStatus('recording');
+            }, 2500);
+        } else {
+            // position情報を含まない旧形式ファイル。今後の一時停止/自動保存から記録を開始する
+            updatePositionStatus('recording');
+        }
+    }
+
+    // ----------------------------------------------------
+    // _JSONフォルダからの自動読み込み（File System Access API）
+    // 対応ブラウザ（Chrome系）でのみ動作。非対応の場合は従来の手動選択にフォールバックする。
+    // ----------------------------------------------------
+    const FS_ACCESS_SUPPORTED = typeof window.showDirectoryPicker === 'function';
+    let cachedAudioDirHandle = null;
+
+    function idbOpen() {
+        return new Promise((resolve, reject) => {
+            const req = indexedDB.open('radiko-pwa-fs', 1);
+            req.onupgradeneeded = () => {
+                if (!req.result.objectStoreNames.contains('handles')) {
+                    req.result.createObjectStore('handles');
+                }
+            };
+            req.onsuccess = () => resolve(req.result);
+            req.onerror = () => reject(req.error);
+        });
+    }
+
+    async function idbGet(key) {
+        try {
+            const db = await idbOpen();
+            return await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readonly');
+                const req = tx.objectStore('handles').get(key);
+                req.onsuccess = () => resolve(req.result || null);
+                req.onerror = () => reject(req.error);
+            });
+        } catch (e) {
+            return null;
+        }
+    }
+
+    async function idbSet(key, value) {
+        try {
+            const db = await idbOpen();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').put(value, key);
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch (e) {
+            // 保存に失敗しても致命的ではないため無視（次回また選択を求めるだけ）
+        }
+    }
+
+    async function verifyDirPermission(handle, allowPrompt) {
+        // readwrite で統一する。.blanks.json への position 書き込み・新規作成に必要なため
+        // （readwriteの許可は読み取りも内包する）。
+        const opts = { mode: 'readwrite' };
+        try {
+            if (allowPrompt) {
+                return (await handle.requestPermission(opts)) === 'granted';
+            }
+            return (await handle.queryPermission(opts)) === 'granted';
+        } catch (e) {
+            return false;
+        }
+    }
+
+    // 保存済みのフォルダハンドルをページ読み込み時（＝ユーザー操作を待たず）に先読みしておく。
+    let audioDirHandlePrefetch = null;
+    if (FS_ACCESS_SUPPORTED) {
+        audioDirHandlePrefetch = idbGet('audioDirHandle').then((stored) => {
+            if (stored) cachedAudioDirHandle = stored;
+        }).catch(() => {});
+    }
+
+    // 自動チェック用：既に許可済み（'granted'）のフォルダがあれば返す。
+    // queryPermissionのみを使い、requestPermission/showDirectoryPickerは一切呼ばない
+    // （ユーザー操作なしで呼ぶと、Androidだけでなく実際にはMacでも
+    //  「Must be handling a user gesture」エラーになることが確認されたため）。
+    async function getAudioDirHandleSilently() {
+        if (audioDirHandlePrefetch) {
+            await audioDirHandlePrefetch;
+            audioDirHandlePrefetch = null;
+        }
+        if (cachedAudioDirHandle && (await verifyDirPermission(cachedAudioDirHandle, false))) {
+            console.log(`[_JSON自動探索] 許可済みフォルダを使用: "${cachedAudioDirHandle.name}"`);
+            return cachedAudioDirHandle;
+        }
+        return null;
+    }
+
+    // タップ（明示的なクリック）から呼ぶ用：showDirectoryPicker/requestPermissionを
+    // 一切のawaitを挟まず、ハンドラの最初の非同期処理として直接呼ぶ。
+    // これにより「ユーザー操作起因」であることをブラウザに正しく認識させる。
+    async function requestAudioDirHandleFromGesture() {
+        if (cachedAudioDirHandle) {
+            try {
+                if ((await cachedAudioDirHandle.requestPermission({ mode: 'readwrite' })) === 'granted') {
+                    console.log(`[_JSON自動探索] 許可を再確認: "${cachedAudioDirHandle.name}"`);
+                    return cachedAudioDirHandle;
+                }
+            } catch (e) {
+                // フォールバックして下の新規選択に進む
+            }
+        }
+        try {
+            const handle = await window.showDirectoryPicker({ id: 'radiko-audio-dir', mode: 'readwrite' });
+            console.log(`[_JSON自動探索] 新しくフォルダを選択: "${handle.name}"`);
+            cachedAudioDirHandle = handle;
+            idbSet('audioDirHandle', handle);
+            return handle;
+        } catch (e) {
+            console.log('[_JSON自動探索] フォルダ選択がキャンセルされました、または権限が得られませんでした', e);
+            return null;
+        }
+    }
+
+    // 保存されているフォルダへのアクセス許可をリセットする。
+    // 誤って別のフォルダ（音声ファイルの祖先/子孫フォルダなど）を選んでしまった場合、
+    // 次回のフォルダ選択ダイアログを再度出すために使う。
+    async function resetAudioDirHandle() {
+        cachedAudioDirHandle = null;
+        audioDirHandlePrefetch = null;
+        try {
+            const db = await idbOpen();
+            await new Promise((resolve, reject) => {
+                const tx = db.transaction('handles', 'readwrite');
+                tx.objectStore('handles').delete('audioDirHandle');
+                tx.oncomplete = () => resolve();
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch (e) {
+            // no-op
+        }
+        console.log('[_JSON自動探索] フォルダのアクセス許可をリセットしました。次回タップした時に再度選択できます。');
+    }
+
+    // タップ／長押しの共通セットアップ：
+    // ・短いタップ: その場でフォルダへのアクセスを要求し（未許可なら）、見つかれば/作成できれば適用する
+    // ・長押し: 保存済みのフォルダ許可をリセットする（誤ったフォルダを選んでしまった場合の救済）
+    // ブランク表示・再生位置表示のどちらをタップしても、同じ_JSONフォルダに対する処理なので同じ動作にする。
+    function setupStatusTapAndHold(hitElement, onResetMessage) {
+        let pressTimer = null;
+        let longPressFired = false;
+        const LONG_PRESS_MS = 800;
+
+        function start() {
+            longPressFired = false;
+            pressTimer = setTimeout(async () => {
+                pressTimer = null;
+                longPressFired = true;
+                const ok = confirm('保存されている_JSONフォルダへのアクセス許可をリセットしますか？\n次回タップした時に、フォルダの選択ダイアログが再度表示されます。');
+                if (ok) {
+                    await resetAudioDirHandle();
+                    updateBlankUI('idle');
+                    updatePositionStatus('checking');
+                    onResetMessage();
+                }
+            }, LONG_PRESS_MS);
+        }
+        function cancelTimer() {
+            if (pressTimer) {
+                clearTimeout(pressTimer);
+                pressTimer = null;
+            }
+        }
+
+        hitElement.addEventListener('mousedown', start);
+        hitElement.addEventListener('mouseup', cancelTimer);
+        hitElement.addEventListener('mouseleave', cancelTimer);
+        hitElement.addEventListener('touchstart', start, { passive: true });
+        hitElement.addEventListener('touchend', cancelTimer);
+        hitElement.addEventListener('touchmove', cancelTimer);
+
+        hitElement.addEventListener('click', async () => {
+            if (longPressFired) { longPressFired = false; return; } // 長押し操作直後のclickは無視
+            if (!currentFileName) return;
+            if (!FS_ACCESS_SUPPORTED) return;
+            // 既に正常に動作中（ブランク検出済み かつ 記録中）なら、タップは無視してよい
+            if (blankUIState === 'done' && positionUIState === 'recording') return;
+
+            // ここが起点：一切のawaitを挟まずshowDirectoryPicker/requestPermissionを直接呼ぶ
+            const myToken = blankScanToken;
+            await loadOrCreateBlanksFile(currentFileName, myToken, true);
+        });
+    }
+
+    setupStatusTapAndHold(blankStatusHit, () => {
+        blankStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
+    });
+    setupStatusTapAndHold(positionStatusHit, () => {
+        positionStatus.textContent = 'フォルダ許可をリセットしました（タップで再選択）';
+    });
+
+    // 指定フォルダの「_JSON」内から <ファイル名>.blanks.json を探して読み込む。
+    // 見つからず、かつ書き込み権限があれば、無音検出結果なしの新規ファイルを作成する。
+    // forceGesture=true のときだけ、フォルダ未許可ならその場でダイアログを出す（タップ起点でのみ使用）。
+    async function loadOrCreateBlanksFile(myFileName, myToken, forceGesture) {
+        if (!FS_ACCESS_SUPPORTED) {
+            updateBlankUI('unsupported');
+            updatePositionStatus('unsupported');
+            return;
+        }
+
+        const dirHandle = forceGesture
+            ? await requestAudioDirHandleFromGesture()
+            : await getAudioDirHandleSilently();
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (!dirHandle) {
+            updateBlankUI('notfound');
+            updatePositionStatus('nofolder');
+            return;
+        }
+
+        let jsonDirHandle;
+        try {
+            jsonDirHandle = await dirHandle.getDirectoryHandle('_JSON', { create: true });
+        } catch (e) {
+            console.log(`[_JSON] "${dirHandle.name}" 内に "_JSON" フォルダを作成/取得できません`, e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        const audioBase = myFileName.replace(/\.[^/.]+$/, '');
+        const targetName = normalizeFileNameForCompare(`${audioBase}.blanks.json`);
+
+        let matchedHandle = null;
+        try {
+            for await (const [name, handle] of jsonDirHandle.entries()) {
+                if (handle.kind !== 'file') continue;
+                if (normalizeFileNameForCompare(name) === targetName) {
+                    matchedHandle = handle;
+                    break;
+                }
+            }
+        } catch (e) {
+            console.log('[_JSON] フォルダの読み取りに失敗', e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (matchedHandle) {
+            let data;
+            try {
+                const file = await matchedHandle.getFile();
+                data = JSON.parse(await file.text());
+            } catch (e) {
+                console.log('[_JSON] blanks.jsonの読み込み/解析に失敗', e);
+                updateBlankUI('notfound');
+                updatePositionStatus('error');
+                return;
+            }
+            if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+            console.log(`[_JSON] blanks.jsonを発見・読込み: "${matchedHandle.name}"`);
+            applyLoadedBlanksData(data, myFileName);
+            return;
+        }
+
+        // 見つからない場合：書き込み権限があれば、検出結果なしの新規ファイルを作成する
+        console.log(`[_JSON] 一致するblanks.jsonなし。新規作成を試みます（対象: ${audioBase}.blanks.json）`);
+        const hasWrite = await verifyDirPermission(dirHandle, false);
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        if (!hasWrite) {
+            updateBlankUI('notfound');
+            updatePositionStatus('nofolder');
+            return;
+        }
+
+        const newData = {
+            app: 'RadikoPWA-BlankDetector',
+            version: 2,
+            fileName: myFileName,
+            duration: isFinite(audioPlayer.duration) ? audioPlayer.duration : null,
+            generatedAt: new Date().toISOString(),
+            intervals: []
+            // position/updated/deviceはここでは書かない。実際に一時停止/自動保存が
+            // 起きるまでは「position情報なし」として扱い、他デバイスの正当な再生位置を
+            // 「作りたてのposition:0」で誤って上書きしてしまわないようにするため。
+        };
+
+        try {
+            const fileHandle = await jsonDirHandle.getFileHandle(`${audioBase}.blanks.json`, { create: true });
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(newData, null, 2));
+            await writable.close();
+            console.log(`[_JSON] blanks.jsonを新規作成: ${audioBase}.blanks.json`);
+        } catch (e) {
+            console.log('[_JSON] blanks.json新規作成に失敗', e);
+            updateBlankUI('notfound');
+            updatePositionStatus('error');
+            return;
+        }
+
+        if (myToken !== blankScanToken || currentFileName !== myFileName) return;
+
+        blanksFileData = newData;
+        blankIntervals = [];
+        blankLocalDone = true;
+        updateBlankUI('notfound'); // 検出結果自体はまだ無い
+        updatePositionStatus('recording');
+    }
+
+    // _JSON/<ファイル名>.blanks.json の position/updated/device を更新して書き戻す。
+    // 既存のintervals等は保持する。一時停止時、および再生中10秒おきに呼ばれる。
+    // 書き込み権限が無ければプロンプトは出さず静かに諦める（スリープタイマー由来の一時停止など
+    // ユーザー操作を伴わないタイミングで発火することもあるため）。
+    async function writePositionUpdate(position) {
+        if (!FS_ACCESS_SUPPORTED || !currentFileName) return;
+        if (!cachedAudioDirHandle) return;
+
+        try {
+            // .blanks.json の読み込み（または新規作成）が完了していない間は書き込まない。
+            // 未読込みのまま書くと、既存のintervals/musicIntervals/talkIntervalsを空で上書きしてしまうため。
+            if (!blanksFileData) return;
+
+            const hasWrite = await verifyDirPermission(cachedAudioDirHandle, false);
+            if (!hasWrite) return;
+
+            const jsonDirHandle = await cachedAudioDirHandle.getDirectoryHandle('_JSON', { create: true });
+            const audioBase = currentFileName.replace(/\.[^/.]+$/, '');
+            const fileHandle = await jsonDirHandle.getFileHandle(`${audioBase}.blanks.json`, { create: true });
+
+            const base = blanksFileData;
+
+            const payload = {
+                ...base,
+                fileName: currentFileName,
+                intervals: blankIntervals || base.intervals || [],
+                position: position,
+                updated: toJSTISOString(new Date()),
+                device: getDeviceLabel()
+            };
+
+            const writable = await fileHandle.createWritable();
+            await writable.write(JSON.stringify(payload, null, 2));
+            await writable.close();
+
+            blanksFileData = payload;
+            updatePositionStatus('recording');
+            console.log(`[_JSON] position更新: ${position.toFixed(1)}秒`);
+        } catch (e) {
+            console.log('[_JSON] position書き込みエラー', e);
+            updatePositionStatus('error');
+        }
+    }
+
+    fileInput.addEventListener('change', function(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        currentFileName = file.name;
+        currentHpUrl = "";
+        hpBtn.classList.add('disabled');
+        resumeStatus.textContent = ""; 
+        lyricsOverlay.classList.remove('active'); 
+        userSeekedSinceLoad = false;
+        lastDiskSavedTime = 0;
+        blanksFileData = null;
+        musicIntervals = [];
+        talkIntervals = [];
+
+        // このファイル読み込みセッションの識別子（別ファイルへの切り替え時に古い非同期処理を無視するため）
+        const fileToken = ++blankScanToken;
+
+        blankIntervals = [];
+        updateBlankUI('idle');           // "確認中…"
+        updatePositionStatus('checking'); // "確認中…"
+
+        // _JSONフォルダの自動探索は、ファイル選択という「ユーザー操作」の直後、できるだけ早いタイミングで
+        // 開始する。ただしここは silent（フォルダ未許可ならダイアログを出さない）。
+        // ファイル選択のchangeイベントから直接showDirectoryPickerを呼ぶと、Android/macOSともに
+        // 「ユーザー操作起因ではない」と判定されてしまうことが確認されているため。
+        // 未許可の場合は「タップで許可」の表示になり、ブランク/再生位置どちらかのテキストをタップすれば許可できる。
+        loadOrCreateBlanksFile(file.name, fileToken, false);
+
+        jsmediatags.read(file, {
+            onSuccess: function(tag) {
+                const tags = tag.tags;
+                trackTitle.textContent = tags.title || file.name;
+                trackAlbum.textContent = tags.album || "-";
+                trackArtist.textContent = tags.artist || "-";
+
+                let loadedLyrics = tags.lyrics || (tags.unsynchronisedLyrics ? tags.unsynchronisedLyrics.text : "");
+                lyricsContent.textContent = loadedLyrics ? loadedLyrics : "歌詞情報が含まれていないか、読み込めませんでした。";
+
+                // ----------------------------------------------------
+                // 修正版: Commentタグを最優先とするURL抽出ロジック
+                // ----------------------------------------------------
+                let foundUrl = null;
+
+                // 1. 最優先: Commentタグを掘る
+                if (tags.comment) {
+                    if (typeof tags.comment === 'string') {
+                        foundUrl = tags.comment;
+                    } else if (typeof tags.comment === 'object' && tags.comment.text) {
+                        foundUrl = tags.comment.text;
+                    }
+                }
+
+                // 2. なければフォールバック1: TXXXタグ (HP)
+                if (!foundUrl && tags.TXXX) {
+                    const txxxArray = Array.isArray(tags.TXXX) ? tags.TXXX : [tags.TXXX];
+                    for (let t of txxxArray) {
+                        if (t.data && t.data.description && t.data.description.toUpperCase() === 'HP') {
+                            foundUrl = t.data.text;
+                            break;
+                        }
+                    }
+                }
+
+                // 3. なければフォールバック2: メタデータ全体の文字列からURLを自動走査
+                if (!foundUrl) {
+                    try {
+                        const tagsString = JSON.stringify(tags);
+                        const urlMatch = tagsString.match(/https?:\/\/[a-zA-Z0-9.\-_~:/?#[\]@!$&'()*+,;=%]+/);
+                        if (urlMatch) {
+                            foundUrl = urlMatch[0];
+                        }
+                    } catch(e) {}
+                }
+
+                // トリミングして有効なURLか検証
+                if (foundUrl) {
+                    foundUrl = foundUrl.trim();
+                    if (foundUrl.startsWith('http')) {
+                        currentHpUrl = foundUrl;
+                        hpBtn.classList.remove('disabled');
+                    }
+                }
+                // ----------------------------------------------------
+
+                updateMediaSession(tags.title || file.name, tags.artist || '', tags.picture || null);
+
+                if (tags.picture) {
+                    const { data, format } = tags.picture;
+                    let base64String = "";
+                    for (let i = 0; i < data.length; i++) {
+                        base64String += String.fromCharCode(data[i]);
+                    }
+                    coverArt.style.backgroundImage = `url(data:${format};base64,${btoa(base64String)})`;
+                    coverArt.textContent = "";
+                } else {
+                    coverArt.style.backgroundImage = "none";
+                    coverArt.textContent = "[No Cover] (クリックで歌詞)";
+                }
+            },
+            onError: function() {
+                trackTitle.textContent = file.name;
+                updateMediaSession(file.name, '', null);
+                coverArt.style.backgroundImage = "none";
+                coverArt.textContent = "[No Cover]";
+                lyricsContent.textContent = "タグの読み込みエラー。";
+            }
+        });
+
+        audioPlayer.src = URL.createObjectURL(file);
+    });
+
+    audioPlayer.addEventListener('loadedmetadata', () => {
+        const duration = audioPlayer.duration;
+
+        seekBar.min = 0;
+        seekBar.max = isFinite(duration) ? duration : 0;
+        seekBar.value = 0;
+        seekBar.style.setProperty('--val', '0%');
+
+        updateTimeDisplay(0, duration);
+
+        const rawSaved = localStorage.getItem(`resume_${currentFileName}`);
+        if (rawSaved) {
+            let record;
+            try {
+                record = JSON.parse(rawSaved);
+            } catch (e) {
+                record = { position: parseFloat(rawSaved), updatedAt: 0 }; // 旧形式（数値のみ）との互換
+            }
+            if (record && record.position > 0) {
+                audioPlayer.currentTime = record.position;
+                resumeStatus.textContent = `前回位置から再開`;
+                setTimeout(() => { resumeStatus.textContent = ""; }, 3000);
+            }
+        }
+
+        lastSavedTime = audioPlayer.currentTime;
+        audioPlayer.play().catch(e => console.log("自動再生ブロック"));
+    });
+
+    audioPlayer.addEventListener('timeupdate', () => {
+        if (isDragging) return;
+
+        const current = audioPlayer.currentTime;
+        updateTimeDisplay(current, audioPlayer.duration);
+        updateSeekBarVisual(current, audioPlayer.duration);
+        seekBar.value = current;
+        refreshBlankNav();
+        refreshTalkEnhanceAuto();
+
+        // レジューム位置の保存は厳密な精度が不要なため、数秒おきに間引いて記録する（ローカル）
+        if (currentFileName && current > 0 && Math.abs(current - lastSavedTime) >= RESUME_SAVE_INTERVAL) {
+            saveResumePosition(current);
+        }
+
+        // _JSON/*.blanks.json への書き込みは10秒おきに間引く（Dropbox等への同期負荷を抑えるため）
+        if (currentFileName && current > 0 && Math.abs(current - lastDiskSavedTime) >= DISK_SAVE_INTERVAL) {
+            lastDiskSavedTime = current;
+            writePositionUpdate(current);
+        }
+    });
+
+    // ----------------------------------------------------
+    // らじるらじる等のVBRファイル迷子対策 (ストalled / waiting 監視)
+    // ----------------------------------------------------
+    audioPlayer.addEventListener('waiting', () => {
+        // シーク後などにデータが詰まったら、一瞬だけ再生位置をわずかに進めて強制リフレッシュをかける
+        if (!audioPlayer.paused && !isDragging) {
+            setTimeout(() => {
+                if (audioPlayer.readyState < 3) { // 充分なデータが溜まっていない場合
+                    audioPlayer.currentTime = audioPlayer.currentTime + 0.1;
+                }
+            }, 500);
+        }
+    });
+    // ----------------------------------------------------
+
+    playBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        if (audioPlayer.paused) audioPlayer.play();
+        else audioPlayer.pause();
+    });
+
+    audioPlayer.addEventListener('seeked', () => refreshTalkEnhanceAuto());
+
+    audioPlayer.addEventListener('play', () => {
+        playBtn.innerHTML = svgPause;
+        playBtn.classList.add('playing');
+    });
+
+    audioPlayer.addEventListener('pause', () => {
+        playBtn.innerHTML = svgPlay;
+        playBtn.classList.remove('playing');
+        saveResumePosition(audioPlayer.currentTime);
+        writePositionUpdate(audioPlayer.currentTime);
+    });
+
+    audioPlayer.addEventListener('ended', () => {
+        playBtn.innerHTML = svgPlay;
+        playBtn.classList.remove('playing');
+        if (currentFileName) {
+            localStorage.removeItem(`resume_${currentFileName}`);
+        }
+    });
+
+    // Androidでは "intent://" スキームを使うことで、PWA内(Chrome)ではなく
+    // 端末のデフォルトブラウザ（Firefox/Safari等に設定していればそちら）で開かせる。
+    // Mac/PC等ではAndroidのIntentの仕組みが無いため、従来通りwindow.openで開く。
+    function openHomepage(url) {
+        if (!url) return;
+        const isAndroid = /Android/i.test(navigator.userAgent);
+
+        if (isAndroid) {
+            try {
+                const u = new URL(url);
+                const scheme = u.protocol.replace(':', ''); // "http" または "https"
+                const withoutScheme = url.slice(u.protocol.length + 2); // 先頭の "scheme://" を除いた部分
+                const intentUrl = `intent://${withoutScheme}#Intent;scheme=${scheme};action=android.intent.action.VIEW;end`;
+                window.location.href = intentUrl;
+                return;
+            } catch (e) {
+                // URL解析に失敗した場合は通常通り開く
+            }
+        }
+
+        window.open(url, '_blank', 'noopener');
+    }
+
+    hpBtn.addEventListener('click', () => {
+        if (currentHpUrl && !hpBtn.classList.contains('disabled')) {
+            openHomepage(currentHpUrl);
+        }
+    });
+
+    // ----------------------------------------------------
+    // トーク強調（声の帯域を軽くブーストして聴き取りやすくする）
+    // BiquadFilterNodeはネイティブ実装で非常に軽量なため、常時接続しておき、
+    // オン/オフはパラメータ（gain/frequency）の切り替えだけで行う。
+    // ・低域ハイパス: 環境ノイズを緩やかにカット
+    // ・ピーキングEQ : 2kHz付近（声の明瞭度に効く帯域）をブースト
+    // ----------------------------------------------------
+    let talkAudioCtx = null;
+    let talkMediaSource = null;
+    let talkLowCutFilter = null;
+    let talkSpeechFilter = null;
+    // モード: OFF → Low → Low Auto → High → High Auto
+    //  ・Low / High      : 常にそのレベルで強調（手動）
+    //  ・Low Auto / High Auto : .blanks.json の musicIntervals（音楽部分）ではOFF、それ以外（トーク部分）ではLow/High
+    //    ※ musicIntervals が無い（未検出の）ファイルでは、Autoでも常にトーク扱い（＝Low/Highのまま）になる
+    const TALK_MODES = {
+        off:      { base: 'off',  auto: false, label: 'OFF' },
+        low:      { base: 'low',  auto: false, label: 'Low' },
+        lowauto:  { base: 'low',  auto: true,  label: 'Low Auto' },
+        high:     { base: 'high', auto: false, label: 'High' },
+        highauto: { base: 'high', auto: true,  label: 'High Auto' }
+    };
+    const TALK_MODE_ORDER = ['off', 'low', 'lowauto', 'high', 'highauto'];
+    let talkEnhanceMode = 'off';
+    let talkAppliedLevel = null; // 実際にフィルターへ適用中のレベル（'off' | 'low' | 'high'）
+
+    const TALK_PEAK_FREQ = 2000;    // 中心周波数 2kHz（声の明瞭度に効く帯域、レベル共通）
+    const TALK_PEAK_Q = 1.0;
+
+    // レベルごとの設定。段階が上がるほど低音カットを強め、ブースト量を増やす。
+    const TALK_LEVELS = {
+        off:  { highpass: 20,  peakGain: 0.0 },  // 事実上無効化
+        low:  { highpass: 150, peakGain: 5.0 },
+        high: { highpass: 220, peakGain: 9.0 }
+    };
+
+    function ensureTalkAudioGraph() {
+        if (talkAudioCtx) return true;
+        try {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return false;
+
+            talkAudioCtx = new AC();
+            talkMediaSource = talkAudioCtx.createMediaElementSource(audioPlayer);
+
+            talkLowCutFilter = talkAudioCtx.createBiquadFilter();
+            talkLowCutFilter.type = 'highpass';
+            talkLowCutFilter.frequency.value = TALK_LEVELS.off.highpass;
+
+            talkSpeechFilter = talkAudioCtx.createBiquadFilter();
+            talkSpeechFilter.type = 'peaking';
+            talkSpeechFilter.frequency.value = TALK_PEAK_FREQ;
+            talkSpeechFilter.Q.value = TALK_PEAK_Q;
+            talkSpeechFilter.gain.value = TALK_LEVELS.off.peakGain;
+
+            talkMediaSource.connect(talkLowCutFilter);
+            talkLowCutFilter.connect(talkSpeechFilter);
+            talkSpeechFilter.connect(talkAudioCtx.destination);
+            return true;
+        } catch (e) {
+            console.log('トーク強調機能を初期化できませんでした', e);
+            talkAudioCtx = null;
+            return false;
+        }
+    }
+
+    function isInIntervals(list, t) {
+        for (let i = 0; i < list.length; i++) {
+            if (t >= list[i].start && t < list[i].end) return true;
+        }
+        return false;
+    }
+
+    // 現在の再生位置で実際に適用すべきレベルを返す
+    function getEffectiveTalkLevel() {
+        const m = TALK_MODES[talkEnhanceMode];
+        if (!m.auto) return m.base;
+        return isInIntervals(musicIntervals, audioPlayer.currentTime || 0) ? 'off' : m.base;
+    }
+
+    function updateTalkUI() {
+        const m = TALK_MODES[talkEnhanceMode];
+        talkEnhanceStatus.textContent = m.label;
+
+        for (const el of [talkEnhanceBtn, talkEnhanceStatus]) {
+            el.classList.remove('level-low', 'level-high', 'auto-music');
+            if (m.base === 'low') el.classList.add('level-low');
+            if (m.base === 'high') el.classList.add('level-high');
+            // Auto中で、いま音楽部分のためOFFになっている間は少し薄く表示する
+            if (m.auto && talkAppliedLevel === 'off') el.classList.add('auto-music');
+        }
+    }
+
+    function applyTalkLevel(level) {
+        if (!talkAudioCtx) return;
+        talkAppliedLevel = level;
+        const cfg = TALK_LEVELS[level];
+        const now = talkAudioCtx.currentTime;
+        talkLowCutFilter.frequency.setTargetAtTime(cfg.highpass, now, 0.05);
+        talkSpeechFilter.gain.setTargetAtTime(cfg.peakGain, now, 0.05);
+    }
+
+    // Autoモード中、再生位置（timeupdate/seeked）に応じて切り替える。レベルが変わった時だけ処理する。
+    function refreshTalkEnhanceAuto() {
+        if (!talkAudioCtx) return;
+        if (!TALK_MODES[talkEnhanceMode].auto) return;
+        const eff = getEffectiveTalkLevel();
+        if (eff !== talkAppliedLevel) {
+            applyTalkLevel(eff);
+            updateTalkUI();
+        }
+    }
+
+    function setTalkEnhanceMode(mode) {
+        if (!ensureTalkAudioGraph()) return; // 非対応環境では何もしない
+
+        if (talkAudioCtx.state === 'suspended') {
+            talkAudioCtx.resume().catch(() => {});
+        }
+
+        talkEnhanceMode = mode;
+        applyTalkLevel(getEffectiveTalkLevel());
+        updateTalkUI();
+    }
+
+    talkEnhanceBtn.addEventListener('click', () => {
+        const idx = TALK_MODE_ORDER.indexOf(talkEnhanceMode);
+        setTalkEnhanceMode(TALK_MODE_ORDER[(idx + 1) % TALK_MODE_ORDER.length]);
+    });
+
+    // ----------------------------------------------------
+    // 早送り・巻き戻し（10秒／30秒）
+    // ----------------------------------------------------
+    rewindBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 10);
+        userSeekedSinceLoad = true;
+    });
+
+    forwardBtn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 10;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 10);
+        userSeekedSinceLoad = true;
+    });
+
+    rewind30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        audioPlayer.currentTime = Math.max(0, audioPlayer.currentTime - 30);
+        userSeekedSinceLoad = true;
+    });
+
+    forward30Btn.addEventListener('click', () => {
+        if (!audioPlayer.src) return;
+        const dur = isFinite(audioPlayer.duration) ? audioPlayer.duration : audioPlayer.currentTime + 30;
+        audioPlayer.currentTime = Math.min(dur, audioPlayer.currentTime + 30);
+        userSeekedSinceLoad = true;
+    });
+
+    // ----------------------------------------------------
+    // スリープタイマー（クリックでOFF→15→30→45→60→90分を循環）
+    // ----------------------------------------------------
+    const SLEEP_PRESETS = [0, 15, 30, 45, 60, 90]; // 分。0はOFF
+    let sleepIndex = 0;
+    let sleepTimeoutId = null;
+    let sleepIntervalId = null;
+    let sleepEndTime = null;
+
+    function clearSleepTimer() {
+        if (sleepTimeoutId) clearTimeout(sleepTimeoutId);
+        if (sleepIntervalId) clearInterval(sleepIntervalId);
+        sleepTimeoutId = null;
+        sleepIntervalId = null;
+        sleepEndTime = null;
+        sleepBtn.classList.remove('active');
+        sleepStatus.classList.remove('active');
+    }
+
+    function updateSleepDisplay() {
+        if (!sleepEndTime) return;
+        const remainMs = sleepEndTime - Date.now();
+        if (remainMs <= 0) {
+            sleepStatus.textContent = 'OFF';
+            return;
+        }
+        const totalSec = Math.ceil(remainMs / 1000);
+        const m = Math.floor(totalSec / 60);
+        const s = totalSec % 60;
+        sleepStatus.textContent = `${m}:${s.toString().padStart(2, '0')}`;
+    }
+
+    function startSleepTimer(minutes) {
+        clearSleepTimer();
+        if (minutes <= 0) {
+            sleepStatus.textContent = 'OFF';
+            return;
+        }
+        sleepEndTime = Date.now() + minutes * 60 * 1000;
+        sleepBtn.classList.add('active');
+        sleepStatus.classList.add('active');
+        updateSleepDisplay();
+        sleepIntervalId = setInterval(updateSleepDisplay, 1000);
+        sleepTimeoutId = setTimeout(() => {
+            audioPlayer.pause();
+            sleepIndex = 0;
+            clearSleepTimer();
+            sleepStatus.textContent = 'OFF';
+        }, minutes * 60 * 1000);
+    }
+
+    sleepBtn.addEventListener('click', () => {
+        sleepIndex = (sleepIndex + 1) % SLEEP_PRESETS.length;
+        startSleepTimer(SLEEP_PRESETS[sleepIndex]);
+    });
+
+    coverArt.addEventListener('click', () => {
+        if (currentFileName) lyricsOverlay.classList.toggle('active');
+    });
+    lyricsClose.addEventListener('click', () => lyricsOverlay.classList.remove('active'));
+
+</script>
+</body>
+</html>
